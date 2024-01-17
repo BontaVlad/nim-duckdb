@@ -1,13 +1,14 @@
 # Package
 
-version       = "0.3.1"
-author        = "ayman albaz"
-description   = "A DuckDB wrapper written in Nim."
-license       = "Apache-2.0"
+version       = "0.1.0"
+author        = "Sergiu Vlad Bonta"
+description   = "Duckdb nim wrapper"
+license       = "MIT"
 srcDir        = "src"
+bin           = @["duckdb"]
 
 
 # Dependencies
 
-requires "nim >= 1.6.6"
-requires "nimterop >= 0.6.13"
+requires "nim >= 2.0.0"
+requires "futhark"
