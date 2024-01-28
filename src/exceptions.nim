@@ -1,5 +1,5 @@
 import macros
-import /[api, queryset]
+import /[api, query_result]
 
 
 type
