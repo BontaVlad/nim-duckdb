@@ -22,18 +22,18 @@ type
     mask: seq[uint64]
   Vector* = ref object
     case kind*: enumduckdbtype
-    of Duckdbtypeinvalid: valueInvalid: int
-    of Duckdbtypeboolean: valueBoolean: int
-    of Duckdbtypetinyint: valueTinyint: int
-    of Duckdbtypesmallint: valueSmallint: int
-    of Duckdbtypebigint: valueBigint: seq[int64]
-    of Duckdbtypeutinyint: valueUtinyint: int
-    of Duckdbtypeusmallint: valueUsmallint: int
-    of Duckdbtypeuinteger: valueUinteger: int
+    of Duckdbtypeinvalid: valueInvalid*: int
+    of Duckdbtypeboolean: valueBoolean*: int
+    of Duckdbtypetinyint: valueTinyint*: int
+    of Duckdbtypesmallint: valueSmallint*: int
+    of Duckdbtypebigint: valueBigint*: seq[int64]
+    of Duckdbtypeutinyint: valueUtinyint*: int
+    of Duckdbtypeusmallint: valueUsmallint*: int
+    of Duckdbtypeuinteger: valueUinteger*: int
     of Duckdbtypeinteger: valueInteger*: seq[int]
-    of Duckdbtypeubigint: valueUbigint: int
-    of Duckdbtypefloat: valueFloat: float
-    of Duckdbtypedouble: valueDouble: float
+    of Duckdbtypeubigint: valueUbigint*: int
+    of Duckdbtypefloat: valueFloat*: float
+    of Duckdbtypedouble: valueDouble*: float
     of Duckdbtypetimestamp: valueTimestamp: int
     of Duckdbtypedate: valueDate: int
     of Duckdbtypetime: valueTime: int
@@ -109,6 +109,15 @@ proc isValid(m: ValidityMask, idx: int): bool =
     entryIdx = idx div BITS_PER_VALUE
     indexInEntry = idx mod BITS_PER_VALUE
   result = (m.mask[entryIdx] and (1.uint64 shl indexInEntry)) != 0
+
+
+proc newVector(col: Column): Vector =
+  result = Vector(kind: col.tpy)
+  case col.tpy
+  of Duckdbtypebigint: result.valueBigint = newSeq[int64]()
+  of Duckdbtypeinteger: result.valueInteger = newSeq[int]()
+  of Duckdbtypevarchar: result.valueVarChar = newSeq[string]()
+  else: discard
 
 
 proc newVector(chunk: DataChunk, col: Column): Vector =
@@ -201,13 +210,20 @@ iterator chunks*(qresult: QueryResult): seq[Vector] =
     yield row
 
 
-# proc `&`[T](s: sink seq[T], a: openArray[T]): seq[T] =
-#   for t in a:
-#     s.add t
-#   return s
-
 proc fetchall*(qresult: QueryResult): seq[Vector] =
-  concat(collect(for e in qresult.chunks(): e))
+  let columns = qresult.columns.toSeq
+  result = newSeq[Vector](len(columns))
+
+  for col in columns:
+    result[col.idx] = newVector(col)
+
+  for chunk in qresult.chunks:
+    for col in columns:
+      case col.tpy
+      of Duckdbtypeinteger: result[col.idx].valueInteger = concat(result[col.idx].valueInteger, chunk[col.idx].valueInteger)
+      of Duckdbtypebigint: result[col.idx].valueBigint = concat(result[col.idx].valueBigint, chunk[col.idx].valueBigint)
+      of Duckdbtypevarchar: result[col.idx].valueVarchar = concat(result[col.idx].valueVarchar, chunk[col.idx].valueVarchar)
+      else: discard
 
 
 proc error*(qresult: QueryResult): string =
