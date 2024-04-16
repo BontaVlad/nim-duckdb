@@ -1,6 +1,3 @@
-
-from macros import hint
-
 when not declared(enumduckdbtype):
   type
     enumduckdbtype* {.size: sizeof(cuint).} = enum

@@ -1,6 +1,5 @@
 import std/[sugar, sequtils, math, logging]
-import /[api]
-
+import api
 
 const
   BITS_PER_VALUE = 64
@@ -22,12 +21,12 @@ type
     mask: seq[uint64]
   Vector* = ref object
     case kind*: enumduckdbtype
-    of Duckdbtypeinvalid: valueInvalid*: int
-    of Duckdbtypeboolean: valueBoolean*: int
-    of Duckdbtypetinyint: valueTinyint*: int
-    of Duckdbtypesmallint: valueSmallint*: int
+    of Duckdbtypeinvalid: valueInvalid*: uint8
+    of Duckdbtypeboolean: valueBoolean*: seq[bool]
+    of Duckdbtypetinyint: valueTinyint*: seq[int8]
+    of Duckdbtypesmallint: valueSmallint*: seq[int8]
     of Duckdbtypebigint: valueBigint*: seq[int64]
-    of Duckdbtypeutinyint: valueUtinyint*: int
+    of Duckdbtypeutinyint: valueUtinyint*: seq[uint8]
     of Duckdbtypeusmallint: valueUsmallint*: int
     of Duckdbtypeuinteger: valueUinteger*: int
     of Duckdbtypeinteger: valueInteger*: seq[int]
@@ -46,13 +45,12 @@ type
     of Duckdbtypetimestampms: valueTimestampms: int
     of Duckdbtypetimestampns: valueTimestampns: int
     of Duckdbtypeenum: valueEnum: int
-    else: discard
-    # of Duckdbtypelist: valueList: seq[Val]
-    # of Duckdbtypestruct: valueStruct: seq[Val]
-    # of Duckdbtypemap: valueMap: seq[seq[Val]]
-    # of Duckdbtypeuuid: valueUuid: cstring
-    # of Duckdbtypeunion: valueUnion: seq[Val]
-    # of Duckdbtypebit: valueBit: int
+    of Duckdbtypelist: valueList: int
+    of Duckdbtypestruct: valueStruct: int
+    of Duckdbtypemap: valueMap: int
+    of Duckdbtypeuuid: valueUuid: int
+    of Duckdbtypeunion: valueUnion: int
+    of Duckdbtypebit: valueBit: int
 
 
 converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk = cast[ptr duckdbdatachunk](d)
@@ -120,6 +118,7 @@ proc newVector(col: Column): Vector =
   else: discard
 
 
+# TODO: make this prettier with macros
 proc newVector(chunk: DataChunk, col: Column): Vector =
   result = Vector(kind: col.tpy)
   let
@@ -130,19 +129,39 @@ proc newVector(chunk: DataChunk, col: Column): Vector =
 
   let chunk_size = duckdb_data_chunk_get_size(chunk).int
   case col.tpy
-  of Duckdbtypeinvalid: result.valueInvalid = 42
-  of Duckdbtypeboolean: result.valueBoolean = 1
-  of Duckdbtypetinyint: result.valueTinyint = 8
-  of Duckdbtypesmallint: result.valueSmallint = 16
+  of Duckdbtypeinvalid:
+    raise newException(ValueError, "got invalid type")
+
+  of Duckdbtypeboolean:
+    let raw = cast[ptr UncheckedArray[uint8]](handle)
+    result.valueBoolean = collect:
+      for i in 0..<chunk_size:
+        if isValid(validityMask, i): raw[i].bool
+
+  of Duckdbtypetinyint:
+    let raw = cast[ptr UncheckedArray[int8]](handle)
+    result.valueTinyint = collect:
+      for i in 0..<chunk_size:
+        if isValid(validityMask, i): raw[i].int8
+
+  of Duckdbtypesmallint:
+    let raw = cast[ptr UncheckedArray[int8]](handle)
+    result.valueSmallint = collect:
+      for i in 0..<chunk_size:
+        if isValid(validityMask, i): raw[i].int8
 
   of Duckdbtypebigint:
     let raw = cast[ptr UncheckedArray[int64]](handle)
     result.valueBigint = collect:
       for i in 0..<chunk_size:
-        # echo isValid(validityMask, i)
         if isValid(validityMask, i): raw[i].int64
 
-  of Duckdbtypeutinyint: result.valueUtinyint = 8
+  of Duckdbtypeutinyint:
+    let raw = cast[ptr UncheckedArray[uint8]](handle)
+    result.valueUtinyint = collect:
+      for i in 0..<chunk_size:
+        if isValid(validityMask, i): raw[i].uint8
+
   of Duckdbtypeusmallint: result.valueUsmallint = 16
   of Duckdbtypeuinteger: result.valueUinteger = 32
 
@@ -220,9 +239,10 @@ proc fetchall*(qresult: QueryResult): seq[Vector] =
   for chunk in qresult.chunks:
     for col in columns:
       case col.tpy
-      of Duckdbtypeinteger: result[col.idx].valueInteger = concat(result[col.idx].valueInteger, chunk[col.idx].valueInteger)
-      of Duckdbtypebigint: result[col.idx].valueBigint = concat(result[col.idx].valueBigint, chunk[col.idx].valueBigint)
-      of Duckdbtypevarchar: result[col.idx].valueVarchar = concat(result[col.idx].valueVarchar, chunk[col.idx].valueVarchar)
+      of Duckdbtypeboolean: result[col.idx].valueBoolean &= chunk[col.idx].valueBoolean
+      of Duckdbtypeinteger: result[col.idx].valueInteger &= chunk[col.idx].valueInteger
+      of Duckdbtypebigint: result[col.idx].valueBigint &= chunk[col.idx].valueBigint
+      of Duckdbtypevarchar: result[col.idx].valueVarchar &= chunk[col.idx].valueVarchar
       else: discard
 
 

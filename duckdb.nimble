@@ -14,5 +14,5 @@ requires "nim >= 2.0.0"
 requires "futhark"
 
 task test, "run testament":
-  echo staticExec("testament p \"./tests/test_*.nim\"")
+  echo staticExec("testament p \"./tests/**/test_*.nim\"")
   discard staticExec("find tests/ -type f ! -name \"*.*\" -delete 2> /dev/null")
