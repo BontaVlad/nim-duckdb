@@ -24,15 +24,15 @@ type
     of Duckdbtypeinvalid: valueInvalid*: uint8
     of Duckdbtypeboolean: valueBoolean*: seq[bool]
     of Duckdbtypetinyint: valueTinyint*: seq[int8]
-    of Duckdbtypesmallint: valueSmallint*: seq[int8]
+    of Duckdbtypesmallint: valueSmallint*: seq[int16]
     of Duckdbtypebigint: valueBigint*: seq[int64]
     of Duckdbtypeutinyint: valueUtinyint*: seq[uint8]
-    of Duckdbtypeusmallint: valueUsmallint*: int
-    of Duckdbtypeuinteger: valueUinteger*: int
+    of Duckdbtypeusmallint: valueUsmallint*: seq[uint16]
+    of Duckdbtypeuinteger: valueUinteger*: seq[uint]
     of Duckdbtypeinteger: valueInteger*: seq[int]
-    of Duckdbtypeubigint: valueUbigint*: int
-    of Duckdbtypefloat: valueFloat*: float
-    of Duckdbtypedouble: valueDouble*: float
+    of Duckdbtypeubigint: valueUbigint*: seq[int64]
+    of Duckdbtypefloat: valueFloat*: seq[float64]
+    of Duckdbtypedouble: valueDouble*: seq[float64]
     of Duckdbtypetimestamp: valueTimestamp: int
     of Duckdbtypedate: valueDate: int
     of Duckdbtypetime: valueTime: int
@@ -118,6 +118,21 @@ proc newVector(col: Column): Vector =
   else: discard
 
 
+template parseHandle(rawType: untyped, resultField: untyped, castType: untyped): untyped =
+  let raw = cast[ptr UncheckedArray[rawType]](handle)
+  resultField = collect:
+    for i in 0..<chunk_size:
+      if isValid(validityMask, i): castType(raw[i])
+
+
+template parseHandle(rawType: untyped, resultField: untyped): untyped =
+  parseHandle(rawType, resultField, rawType)
+
+
+template parseHandle(resultField: untyped): untyped =
+  parseHandle(typedesc(resultField[0]), resultField)
+
+
 # TODO: make this prettier with macros
 proc newVector(chunk: DataChunk, col: Column): Vector =
   result = Vector(kind: col.tpy)
@@ -132,48 +147,39 @@ proc newVector(chunk: DataChunk, col: Column): Vector =
   of Duckdbtypeinvalid:
     raise newException(ValueError, "got invalid type")
 
-  of Duckdbtypeboolean:
-    let raw = cast[ptr UncheckedArray[uint8]](handle)
-    result.valueBoolean = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].bool
-
   of Duckdbtypetinyint:
-    let raw = cast[ptr UncheckedArray[int8]](handle)
-    result.valueTinyint = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].int8
+    parseHandle(result.valueTinyint)
 
   of Duckdbtypesmallint:
-    let raw = cast[ptr UncheckedArray[int8]](handle)
-    result.valueSmallint = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].int8
+    parseHandle(result.valueSmallint)
 
   of Duckdbtypebigint:
-    let raw = cast[ptr UncheckedArray[int64]](handle)
-    result.valueBigint = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].int64
+    parseHandle(result.valueBigint)
 
   of Duckdbtypeutinyint:
-    let raw = cast[ptr UncheckedArray[uint8]](handle)
-    result.valueUtinyint = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].uint8
+    parseHandle(result.valueUtinyint)
 
-  of Duckdbtypeusmallint: result.valueUsmallint = 16
-  of Duckdbtypeuinteger: result.valueUinteger = 32
+  of Duckdbtypeboolean:
+    parseHandle(uint8, result.valueBoolean, bool)
+
+  of Duckdbtypeusmallint:
+    parseHandle(result.valueUsmallint)
+
+  of Duckdbtypeuinteger:
+    parseHandle(result.valueUinteger)
 
   of Duckdbtypeinteger:
-    let raw = cast[ptr UncheckedArray[cint]](handle)
-    result.valueInteger = collect:
-      for i in 0..<chunk_size:
-        if isValid(validityMask, i): raw[i].int
+    parseHandle(cint, result.valueInteger, int)
 
-  of Duckdbtypeubigint: result.valueUbigint = 64
-  of Duckdbtypefloat: result.valueFloat = 3.14
-  of Duckdbtypedouble: result.valueDouble = 2.71828
+  of Duckdbtypeubigint:
+    parseHandle(result.valueUbigint)
+
+  of Duckdbtypefloat:
+    parseHandle(result.valueFloat)
+
+  of Duckdbtypedouble:
+    parseHandle(result.valueDouble)
+
   of Duckdbtypetimestamp: result.valueTimestamp = 123456789
   of Duckdbtypedate: result.valueDate = 20220101
   of Duckdbtypetime: result.valueTime = 120000
