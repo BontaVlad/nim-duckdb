@@ -24,33 +24,33 @@ type
     of Duckdbtypeinvalid: valueInvalid*: uint8
     of Duckdbtypeboolean: valueBoolean*: seq[bool]
     of Duckdbtypetinyint: valueTinyint*: seq[int8]
-    of Duckdbtypesmallint: valueSmallint*: seq[int16]
-    of Duckdbtypebigint: valueBigint*: seq[int64]
     of Duckdbtypeutinyint: valueUtinyint*: seq[uint8]
+    of Duckdbtypesmallint: valueSmallint*: seq[int16]
     of Duckdbtypeusmallint: valueUsmallint*: seq[uint16]
-    of Duckdbtypeuinteger: valueUinteger*: seq[uint]
-    of Duckdbtypeinteger: valueInteger*: seq[int]
-    of Duckdbtypeubigint: valueUbigint*: seq[int64]
-    of Duckdbtypefloat: valueFloat*: seq[float64]
+    of Duckdbtypeinteger: valueInteger*: seq[int32]
+    of Duckdbtypeuinteger: valueUinteger*: seq[uint32]
+    of Duckdbtypebigint: valueBigint*: seq[int64]
+    of Duckdbtypeubigint: valueUbigint*: seq[uint64]
+    of Duckdbtypefloat: valueFloat*: seq[float32]
     of Duckdbtypedouble: valueDouble*: seq[float64]
-    of Duckdbtypetimestamp: valueTimestamp: int
-    of Duckdbtypedate: valueDate: int
-    of Duckdbtypetime: valueTime: int
-    of Duckdbtypeinterval: valueInterval: int
-    of Duckdbtypehugeint: valueHugeint: int
     of Duckdbtypevarchar: valueVarchar*: seq[string]
-    of Duckdbtypeblob: valueBlob: cstring
-    of Duckdbtypedecimal: valueDecimal: cstring
-    of Duckdbtypetimestamps: valueTimestamps: int
-    of Duckdbtypetimestampms: valueTimestampms: int
-    of Duckdbtypetimestampns: valueTimestampns: int
-    of Duckdbtypeenum: valueEnum: int
-    of Duckdbtypelist: valueList: int
-    of Duckdbtypestruct: valueStruct: int
-    of Duckdbtypemap: valueMap: int
-    of Duckdbtypeuuid: valueUuid: int
-    of Duckdbtypeunion: valueUnion: int
-    of Duckdbtypebit: valueBit: int
+    else: discard
+    # of Duckdbtypetimestamp: valueTimestamp: int
+    # of Duckdbtypedate: valueDate: int
+    # of Duckdbtypetime: valueTime: int
+    # of Duckdbtypeinterval: valueInterval: int
+    # of Duckdbtypehugeint: valueHugeint: int
+    # of Duckdbtypedecimal: valueDecimal: cstring
+    # of Duckdbtypetimestamps: valueTimestamps: int
+    # of Duckdbtypetimestampms: valueTimestampms: int
+    # of Duckdbtypetimestampns: valueTimestampns: int
+    # of Duckdbtypeenum: valueEnum: int
+    # of Duckdbtypelist: valueList: int
+    # of Duckdbtypestruct: valueStruct: int
+    # of Duckdbtypemap: valueMap: int
+    # of Duckdbtypeuuid: valueUuid: int
+    # of Duckdbtypeunion: valueUnion: int
+    # of Duckdbtypebit: valueBit: int
 
 
 converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk = cast[ptr duckdbdatachunk](d)
@@ -90,6 +90,7 @@ proc newColumn(qresult: QueryResult, at: idxt): Column =
   result.idx = at
   result.name = $duckdb_column_name(qresult.addr, at)
   result.tpy = duckdb_column_type(qresult.addr, at)
+  echo repr result
 
 
 proc newValidityMask(v: duckdbvector): ValidityMask =
@@ -109,28 +110,36 @@ proc isValid(m: ValidityMask, idx: int): bool =
   result = (m.mask[entryIdx] and (1.uint64 shl indexInEntry)) != 0
 
 
-proc newVector(col: Column): Vector =
-  result = Vector(kind: col.tpy)
-  case col.tpy
-  of Duckdbtypebigint: result.valueBigint = newSeq[int64]()
-  of Duckdbtypeinteger: result.valueInteger = newSeq[int]()
-  of Duckdbtypevarchar: result.valueVarChar = newSeq[string]()
-  else: discard
-
-
-template parseHandle(rawType: untyped, resultField: untyped, castType: untyped): untyped =
+template parseHandle(handle: pointer, rawType: untyped, resultField: untyped, castType: untyped): untyped =
+  # echo repr handle
   let raw = cast[ptr UncheckedArray[rawType]](handle)
   resultField = collect:
     for i in 0..<chunk_size:
       if isValid(validityMask, i): castType(raw[i])
 
 
-template parseHandle(rawType: untyped, resultField: untyped): untyped =
-  parseHandle(rawType, resultField, rawType)
+template parseHandle(handle: pointer, rawType: untyped, resultField: untyped): untyped =
+  parseHandle(handle, rawType, resultField, rawType)
 
 
-template parseHandle(resultField: untyped): untyped =
-  parseHandle(typedesc(resultField[0]), resultField)
+template parseHandle(handle: pointer, resultField: untyped): untyped =
+  parseHandle(handle, typedesc(resultField[0]), resultField)
+
+
+proc newVector(col: Column): Vector =
+  result = Vector(kind: col.tpy)
+  case col.tpy
+  of Duckdbtypeboolean: result.valueBoolean = newSeq[bool]()
+  of Duckdbtypetinyint: result.valueTinyint = newSeq[int8]()
+  of Duckdbtypeutinyint: result.valueUTinyint = newSeq[uint8]()
+  of Duckdbtypeinteger: result.valueInteger = newSeq[int32]()
+  of Duckdbtypeuinteger: result.valueUinteger = newSeq[uint32]()
+  of Duckdbtypebigint: result.valueBigint = newSeq[int64]()
+  of Duckdbtypeubigint: result.valueUbigint = newSeq[uint64]()
+  of Duckdbtypefloat: result.valueFloat = newSeq[float32]()
+  of Duckdbtypedouble: result.valueDouble = newSeq[float64]()
+  of Duckdbtypevarchar: result.valueVarchar = newSeq[string]()
+  else: discard
 
 
 # TODO: make this prettier with macros
@@ -144,49 +153,19 @@ proc newVector(chunk: DataChunk, col: Column): Vector =
 
   let chunk_size = duckdb_data_chunk_get_size(chunk).int
   case col.tpy
-  of Duckdbtypeinvalid:
-    raise newException(ValueError, "got invalid type")
-
-  of Duckdbtypetinyint:
-    parseHandle(result.valueTinyint)
-
-  of Duckdbtypesmallint:
-    parseHandle(result.valueSmallint)
-
-  of Duckdbtypebigint:
-    parseHandle(result.valueBigint)
-
-  of Duckdbtypeutinyint:
-    parseHandle(result.valueUtinyint)
-
-  of Duckdbtypeboolean:
-    parseHandle(uint8, result.valueBoolean, bool)
-
-  of Duckdbtypeusmallint:
-    parseHandle(result.valueUsmallint)
-
-  of Duckdbtypeuinteger:
-    parseHandle(result.valueUinteger)
-
-  of Duckdbtypeinteger:
-    parseHandle(cint, result.valueInteger, int)
-
-  of Duckdbtypeubigint:
-    parseHandle(result.valueUbigint)
-
-  of Duckdbtypefloat:
-    parseHandle(result.valueFloat)
-
-  of Duckdbtypedouble:
-    parseHandle(result.valueDouble)
-
-  of Duckdbtypetimestamp: result.valueTimestamp = 123456789
-  of Duckdbtypedate: result.valueDate = 20220101
-  of Duckdbtypetime: result.valueTime = 120000
-  of Duckdbtypeinterval: result.valueInterval = 500
-  of Duckdbtypehugeint: result.valueHugeint = 9876543210
-
-  of Duckdbtypevarchar:
+  of Duckdbtypeinvalid: raise newException(ValueError, "got invalid type")
+  of Duckdbtypeboolean: parseHandle(handle, uint8, result.valueBoolean, bool)
+  of Duckdbtypetinyint: parseHandle(handle, result.valueTinyint)
+  of Duckdbtypeutinyint: parseHandle(handle, result.valueUtinyint)
+  of Duckdbtypesmallint: parseHandle(handle, result.valueSmallint)
+  of Duckdbtypeusmallint: parseHandle(handle, result.valueUsmallint)
+  of Duckdbtypeinteger: parseHandle(handle, cint, result.valueInteger, int32)
+  of Duckdbtypeuinteger: parseHandle(handle, result.valueUinteger)
+  of Duckdbtypebigint: parseHandle(handle, result.valueBigint)
+  of Duckdbtypeubigint: parseHandle(handle, result.valueUbigint)
+  of Duckdbtypefloat: parseHandle(handle, result.valueFloat)
+  of Duckdbtypedouble: parseHandle(handle, result.valueDouble)
+  of Duckdbtypevarchar, Duckdbtypeblob:
     result.valueVarChar = collect:
       for i in 0..<chunk_size:
         if isValid(validityMask, i):
@@ -203,18 +182,25 @@ proc newVector(chunk: DataChunk, col: Column): Vector =
         else:
           "NULL"
 
-  of Duckdbtypeblob: result.valueBlob = "Binary data"
-  of Duckdbtypedecimal: result.valueDecimal = "3.14159265358979323846"
-  of Duckdbtypetimestamps: result.valueTimestamps = 987654321
-  of Duckdbtypetimestampms: result.valueTimestampms = 1234567890123
-  of Duckdbtypetimestampns: result.valueTimestampns = 987654321012345678
-  of Duckdbtypeenum: result.valueEnum = 2
-  # of Duckdbtypelist: result.valueList = @[newVal(Duckdbtypeinteger), newVal(Duckdbtypevarchar)]
-  # of Duckdbtypestruct: result.valueStruct = @[newVal(Duckdbtypeboolean), newVal(Duckdbtypetinyint)]
-  # of Duckdbtypemap: result.valueMap = @[@[newVal(Duckdbtypevarchar), newVal(Duckdbtypeinteger)]]
-  # of Duckdbtypeuuid: result.valueUuid = "123e4567-e89b-12d3-a456-426614174001"
-  # of Duckdbtypeunion: result.valueUnion = @[newVal(Duckdbtypevarchar), newVal(Duckdbtypetimestamp)]
-  # of Duckdbtypebit: result.valueBit = 1
+  # of Duckdbtypetimestamp: result.valueTimestamp = 123456789
+  # of Duckdbtypedate: result.valueDate = 20220101
+  # of Duckdbtypetime: result.valueTime = 120000
+  # of Duckdbtypeinterval: result.valueInterval = 500
+  # of Duckdbtypehugeint: result.valueHugeint = 9876543210
+
+
+  # of Duckdbtypeblob: result.valueBlob = "Binary data"
+  # of Duckdbtypedecimal: result.valueDecimal = "3.14159265358979323846"
+  # of Duckdbtypetimestamps: result.valueTimestamps = 987654321
+  # of Duckdbtypetimestampms: result.valueTimestampms = 1234567890123
+  # of Duckdbtypetimestampns: result.valueTimestampns = 987654321012345678
+  # of Duckdbtypeenum: result.valueEnum = 2
+  # # of Duckdbtypelist: result.valueList = @[newVal(Duckdbtypeinteger), newVal(Duckdbtypevarchar)]
+  # # of Duckdbtypestruct: result.valueStruct = @[newVal(Duckdbtypeboolean), newVal(Duckdbtypetinyint)]
+  # # of Duckdbtypemap: result.valueMap = @[@[newVal(Duckdbtypevarchar), newVal(Duckdbtypeinteger)]]
+  # # of Duckdbtypeuuid: result.valueUuid = "123e4567-e89b-12d3-a456-426614174001"
+  # # of Duckdbtypeunion: result.valueUnion = @[newVal(Duckdbtypevarchar), newVal(Duckdbtypetimestamp)]
+  # # of Duckdbtypebit: result.valueBit = 1
   else: discard
 
 
@@ -246,8 +232,16 @@ proc fetchall*(qresult: QueryResult): seq[Vector] =
     for col in columns:
       case col.tpy
       of Duckdbtypeboolean: result[col.idx].valueBoolean &= chunk[col.idx].valueBoolean
+      of Duckdbtypetinyint: result[col.idx].valueTinyint &= chunk[col.idx].valueTinyint
+      of Duckdbtypeutinyint: result[col.idx].valueUtinyint &= chunk[col.idx].valueUtinyint
+      of Duckdbtypesmallint: result[col.idx].valueSmallint &= chunk[col.idx].valueSmallint
+      of Duckdbtypeusmallint: result[col.idx].valueUsmallint &= chunk[col.idx].valueUsmallint
       of Duckdbtypeinteger: result[col.idx].valueInteger &= chunk[col.idx].valueInteger
+      of Duckdbtypeuinteger: result[col.idx].valueUinteger &= chunk[col.idx].valueUinteger
       of Duckdbtypebigint: result[col.idx].valueBigint &= chunk[col.idx].valueBigint
+      of Duckdbtypeubigint: result[col.idx].valueUbigint &= chunk[col.idx].valueUbigint
+      of Duckdbtypefloat: result[col.idx].valueFloat &= chunk[col.idx].valueFloat
+      of Duckdbtypedouble: result[col.idx].valueDouble &= chunk[col.idx].valueDouble
       of Duckdbtypevarchar: result[col.idx].valueVarchar &= chunk[col.idx].valueVarchar
       else: discard
 

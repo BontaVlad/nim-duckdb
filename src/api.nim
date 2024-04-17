@@ -4,8 +4,8 @@ when defined(useFuthark):
   # header files you wish to import.
   importc:
     outputPath currentSourcePath.parentDir / "generated.nim"
-    path "lib"
-    "include/duckdb.h"
+    path "src/include"
+    "duckdb.h"
 
   {.passL: "-lduckdb".}
 else:
