@@ -1,9 +1,11 @@
-import std/[sugar, sequtils, math, logging]
+import std/[sugar, sequtils, math, logging, times]
 import api
 
 const
   BITS_PER_VALUE = 64
   STRING_INLINE_LENGTH = 12
+  ROUNDING_EPOCH_TO_UNIX_EPOCH_DAYS = 719528
+  ROUNDING_EPOCH_TO_UNIX_EPOCH_MS = 62167219200000
 
 
 var logger = newConsoleLogger()
@@ -34,12 +36,12 @@ type
     of Duckdbtypefloat: valueFloat*: seq[float32]
     of Duckdbtypedouble: valueDouble*: seq[float64]
     of Duckdbtypevarchar: valueVarchar*: seq[string]
+    of Duckdbtypetimestamp: valueTimestamp*: seq[DateTime]
     else: discard
-    # of Duckdbtypetimestamp: valueTimestamp: int
+    # of Duckdbtypehugeint: valueHugeint: seq[]
     # of Duckdbtypedate: valueDate: int
     # of Duckdbtypetime: valueTime: int
     # of Duckdbtypeinterval: valueInterval: int
-    # of Duckdbtypehugeint: valueHugeint: int
     # of Duckdbtypedecimal: valueDecimal: cstring
     # of Duckdbtypetimestamps: valueTimestamps: int
     # of Duckdbtypetimestampms: valueTimestampms: int
@@ -126,6 +128,46 @@ template parseHandle(handle: pointer, resultField: untyped): untyped =
   parseHandle(handle, typedesc(resultField[0]), resultField)
 
 
+template convertTimeTz(val: untyped): untyped =
+  let time_tz = duckdb_from_time_tz(val)
+
+# function convert_date(column_data::ColumnConversionData, val::Int32)::Date
+#     return Dates.epochdays2date(val + ROUNDING_EPOCH_TO_UNIX_EPOCH_DAYS)
+# end
+
+# function convert_time(column_data::ColumnConversionData, val::Int64)::Time
+#     return Dates.Time(Dates.Nanosecond(val * 1000))
+# end
+
+# function convert_time_tz(column_data::ColumnConversionData, val::UInt64)::Time
+#     time_tz = duckdb_from_time_tz(val)
+#     # TODO: how to preserve the offset?
+#     return Dates.Time(
+#         time_tz.time.hour,
+#         time_tz.time.min,
+#         time_tz.time.sec,
+#         time_tz.time.micros ÷ 1000,
+#         time_tz.time.micros % 1000
+#     )
+# end
+
+# function convert_timestamp(column_data::ColumnConversionData, val::Int64)::DateTime
+#     return Dates.epochms2datetime((val ÷ 1000) + ROUNDING_EPOCH_TO_UNIX_EPOCH_MS)
+# end
+
+# function convert_timestamp_s(column_data::ColumnConversionData, val::Int64)::DateTime
+#     return Dates.epochms2datetime((val * 1000) + ROUNDING_EPOCH_TO_UNIX_EPOCH_MS)
+# end
+
+# function convert_timestamp_ms(column_data::ColumnConversionData, val::Int64)::DateTime
+#     return Dates.epochms2datetime((val) + ROUNDING_EPOCH_TO_UNIX_EPOCH_MS)
+# end
+
+# function convert_timestamp_ns(column_data::ColumnConversionData, val::Int64)::DateTime
+#     return Dates.epochms2datetime((val ÷ 1000000) + ROUNDING_EPOCH_TO_UNIX_EPOCH_MS)
+# end
+
+
 proc newVector(col: Column): Vector =
   result = Vector(kind: col.tpy)
   case col.tpy
@@ -139,6 +181,7 @@ proc newVector(col: Column): Vector =
   of Duckdbtypefloat: result.valueFloat = newSeq[float32]()
   of Duckdbtypedouble: result.valueDouble = newSeq[float64]()
   of Duckdbtypevarchar: result.valueVarchar = newSeq[string]()
+  of Duckdbtypetimestamp: result.valueTimestamp = newSeq[DateTime]()
   else: discard
 
 
@@ -182,7 +225,16 @@ proc newVector(chunk: DataChunk, col: Column): Vector =
         else:
           "NULL"
 
-  # of Duckdbtypetimestamp: result.valueTimestamp = 123456789
+  of Duckdbtypetimestamp:
+    let raw = cast[ptr UncheckedArray[int64]](handle)
+    result.valueTimestamp = collect:
+      for i in 0..<chunk_size:
+        if isValid(validityMask, i): inZone(fromUnix(raw[i] div 1000000), utc())
+  of Duckdbtypetimetz, Duckdbtypetimestamptz:
+    discard
+    # let raw = cast[ptr UncheckedArray[int64]](handle)
+    # result.valueTimestamp = collect:
+
   # of Duckdbtypedate: result.valueDate = 20220101
   # of Duckdbtypetime: result.valueTime = 120000
   # of Duckdbtypeinterval: result.valueInterval = 500
@@ -221,6 +273,7 @@ iterator chunks*(qresult: QueryResult): seq[Vector] =
     yield row
 
 
+# TODO: maybe this needs to be row based and not column based
 proc fetchall*(qresult: QueryResult): seq[Vector] =
   let columns = qresult.columns.toSeq
   result = newSeq[Vector](len(columns))
@@ -243,6 +296,7 @@ proc fetchall*(qresult: QueryResult): seq[Vector] =
       of Duckdbtypefloat: result[col.idx].valueFloat &= chunk[col.idx].valueFloat
       of Duckdbtypedouble: result[col.idx].valueDouble &= chunk[col.idx].valueDouble
       of Duckdbtypevarchar: result[col.idx].valueVarchar &= chunk[col.idx].valueVarchar
+      of Duckdbtypetimestamp: result[col.idx].valueTimestamp &= chunk[col.idx].valueTimestamp
       else: discard
 
 

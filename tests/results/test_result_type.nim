@@ -85,3 +85,19 @@ suite "results":
     con.execute("CREATE TABLE varchars(i VARCHAR); INSERT INTO varchars VALUES ('foo'), ('bar'), ('baz');")
     let outcome = con.execute("SELECT * FROM varchars").fetchall()
     assert outcome[0].valueVarchar == @["foo", "bar", "baz"]
+
+  test "Test timestamp result type":
+    let con = connect()
+    con.execute("CREATE TABLE IF NOT EXISTS timestamps (sec TIMESTAMP_S, milli TIMESTAMP_MS,micro TIMESTAMP_US, nano TIMESTAMP_NS );")
+    con.execute("INSERT INTO timestamps VALUES ('2008-01-01 00:00:11','2008-01-01 00:00:01.794','2008-01-01 00:00:01.98926','2008-01-01 00:00:01.899268321' )")
+    let outcome = con.execute("SELECT * FROM timestamps").fetchall()
+    echo repr outcome
+    # assert outcome[0].valueVarchar == @["foo", "bar", "baz"]
+
+
+        # cursor.execute(
+        #     'CREATE TABLE IF NOT EXISTS timestamps (sec TIMESTAMP_S, milli TIMESTAMP_MS,micro TIMESTAMP_US, nano TIMESTAMP_NS );'
+        # )
+        # cursor.execute(
+        #     "INSERT INTO timestamps VALUES ('2008-01-01 00:00:11','2008-01-01 00:00:01.794','2008-01-01 00:00:01.98926','2008-01-01 00:00:01.899268321' )"
+        # )
