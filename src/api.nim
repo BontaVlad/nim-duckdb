@@ -12,9 +12,10 @@ else:
   include "generated.nim"
 
 
-when defined(cpp):
-  echo "CPP"
-  proc CreateScalarFunction(name: cstring, args: varargs[string, `$`]): void {.importcpp: "CreateScalarFunction", header: "include/duckdb/main/connection.hpp".}
+# when defined(cpp):
+#   echo "CPP"
+
+
 # template <typename TR, typename... Args>
 # 	void CreateScalarFunction(const string &name, TR (*udf_func)(Args...)) {
 # 		scalar_function_t function = UDFWrapper::CreateScalarFunction<TR, Args...>(name, udf_func);
@@ -79,5 +80,5 @@ when defined(cpp):
 # 		                                        finalize, simple_update, bind, destructor);
 # 		UDFWrapper::RegisterAggrFunction(function, *context);
 # 	}
-else:
-  echo "C"
+# else:
+#   echo "C"

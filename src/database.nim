@@ -1,6 +1,6 @@
 import std/[logging]
 
-import /[api, exceptions]
+import /[api, config, exceptions]
 
 
 var logger = newConsoleLogger()
@@ -19,25 +19,34 @@ converter toBase*(c: ptr Connection): ptr duckdb_connection = cast[ptr duckdb_co
 
 
 # This might be a problem, closing the database but not the connection
-proc `=destroy`(db: Database) =
+proc `=destroy`(db: var Database) =
   logger.log(lvlDebug, "Closing the database")
   if not isNil(db.addr):
     duckdb_close(db.addr)
 
 
-proc `=destroy`(con: Connection) =
+proc `=destroy`(con: var Connection) =
   logger.log(lvlDebug, "Disconnecting")
   if not isNil(con.addr):
     duckdb_disconnect(con.addr)
 
 
 proc connect*(path: string): Connection =
-  var db: Database
+  let db = DataBase()
   check(duckdbOpen(path.cstring, db.addr), "Failed to open database")
   check(duckdbConnect(db, result.addr), "Failed to connect to database")
 
 
+proc connect*(path: string, config: Config): Connection =
+  let db = DataBase()
+  var error: cstring
+  let state = duckdbOpenExt(path.cstring, db.addr, config, error.addr)
+  check(state, $error)
+  check(duckdbConnect(db, result.addr), "Failed to connect to database")
+
+
+proc connect*(config: Config): Connection =
+  connect(":memory:", config)
+
 proc connect*(): Connection =
   connect(":memory:")
-
-
