@@ -1,9 +1,6 @@
 import std/[logging]
 
-import /[api, config, exceptions]
-
-
-var logger = newConsoleLogger()
+import /[api, config, exceptions, logger]
 
 
 type
@@ -20,13 +17,13 @@ converter toBase*(c: ptr Connection): ptr duckdb_connection = cast[ptr duckdb_co
 
 # This might be a problem, closing the database but not the connection
 proc `=destroy`(db: var Database) =
-  logger.log(lvlDebug, "Closing the database")
+  consoleLogger.log(lvlDebug, "Closing the database")
   if not isNil(db.addr):
     duckdb_close(db.addr)
 
 
 proc `=destroy`(con: var Connection) =
-  logger.log(lvlDebug, "Disconnecting")
+  consoleLogger.log(lvlDebug, "Disconnecting")
   if not isNil(con.addr):
     duckdb_disconnect(con.addr)
 

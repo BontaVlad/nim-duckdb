@@ -1,6 +1,9 @@
 import unittest
-import std/[enumerate, times]
-import ../../src/[database, query, query_result, exceptions]
+import std/[times, tables, strformat, strutils]
+import nint128
+import decimal
+import ../../src/[database, query, query_result]
+
 
 suite "results":
 
@@ -82,11 +85,8 @@ suite "results":
 
       of Type.Timestamp:
         let con = connect()
-        con.execute("CREATE TABLE IF NOT EXISTS foo (tmp TIMESTAMP);")
-        con.execute("INSERT INTO foo VALUES ('1992-09-20 11:30:00.123456789')")
-        let outcome = con.execute("SELECT * FROM foo").fetchall()
-        assert outcome[0].valueTimestamp[0].year == 1992
-        assert outcome[0].valueTimestamp[0].hour == 11
+        let outcome = con.execute("SELECT TIMESTAMP '1992-09-20 11:30:00.123456789';").fetchall()
+        assert outcome[0].valueTimestamp[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff") == "1992-09-20 11:30:00.123456"
 
       of Type.Date:
         let con = connect()
@@ -106,16 +106,45 @@ suite "results":
       of Type.Interval:
         let
           con = connect()
-          outcome = con.execute("SELECT INTERVAL '1.5' YEARS;")
-        echo repr outcome
-        # assert false
+          # -- Returns 12 months; equivalent to `to_years(CAST(trunc(1.5) AS INTEGER))`
+          outcome = con.execute("SELECT INTERVAL '1.5' YEARS AS months_interval;").fetchAllNamed()
+        assert outcome["months_interval"].valueInterval[0].months == 12
+
+      of Type.HugeInt:
+        let con = connect()
+        con.execute("CREATE TABLE IF NOT EXISTS huge (hg HUGEINT);")
+        con.execute(fmt"INSERT INTO huge VALUES ({high(Int128)})")
+        let
+          outcome = con.execute("SELECT * FROM huge").fetchall()
+        assert i128(outcome[0].valueHugeInt[0].lo) == i128("18446744073709551615")
+      of Type.VarChar:
+        let con = connect()
+        con.execute("CREATE TABLE varchars(i VARCHAR); INSERT INTO varchars VALUES ('foo'), ('bar'), ('baz');")
+        let outcome = con.execute("SELECT * FROM varchars").fetchall()
+        assert outcome[0].valueVarchar == @["foo", "bar", "baz"]
+      of Type.Blob:
+        let
+          con = connect()
+          outcome = con.execute("SELECT 'AB'::BLOB;").fetchAll()
+        assert outcome[0].valueBlob[0] == @[byte(ord('A')), byte(ord('B'))]
+      of Type.Decimal:
+        let
+          con = connect()
+          outcome = con.execute("SELECT CAST(12.3456 AS DECIMAL);").fetchAll()
+        assert outcome[0].valueDecimal[0] == newDecimal("12.346")
+      of Type.TimestampS:
+        let con = connect()
+        let outcome = con.execute("SELECT TIMESTAMP_S '1992-09-20 11:30:00.123456789';").fetchall()
+        assert outcome[0].valueTimestampS[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff") == "1992-09-20 11:30:00.000000"
+      of Type.TimestampMs:
+        let con = connect()
+        let outcome = con.execute("SELECT TIMESTAMP_MS '1992-09-20 11:30:00.123456789';").fetchall()
+        assert outcome[0].valueTimestampMs[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff") == "1992-09-20 11:30:00.123000"
+      of Type.TimestampNs:
+        let con = connect()
+        let outcome = con.execute("SELECT TIMESTAMP_NS '1992-09-20 11:30:00.123456789';").fetchall()
+        echo outcome[0].valueTimestampNs[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff")
+        assert outcome[0].valueTimestampNs[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff") == "1992-09-20 11:30:00.123456"
 
     for kind in Type:
       doTest(kind)
-
-
-  # test "Test var char result type":
-  #   let con = connect()
-  #   con.execute("CREATE TABLE varchars(i VARCHAR); INSERT INTO varchars VALUES ('foo'), ('bar'), ('baz');")
-  #   let outcome = con.execute("SELECT * FROM varchars").fetchall()
-  #   assert outcome[0].valueVarchar == @["foo", "bar", "baz"]

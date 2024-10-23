@@ -13,6 +13,9 @@ bin           = @["duckdb"]
 
 requires "nim >= 2.0.0"
 requires "futhark"
+requires "nint128"
+requires "decimal >= 0.0.2"
+requires "decimal128"
 
 # Function to execute shell command and return output as a sequence of strings
 proc execAndGetLines(cmd: string): seq[string] =
@@ -25,7 +28,7 @@ task test, "run testament":
 
 task coverage, "generate tests coverage":
   let fileinfo = "lcov.info"
-  let lcov_args = "--rc branch_coverage=1"
+  let lcov_args = "--rc branch_coverage=1 --ignore-errors inconsistent --ignore-errors range --ignore-errors unused"
   let generated_not_to_break_here = "generated_not_to_break_here"
   let nimcache_dir = "nimcache"
 
@@ -51,4 +54,5 @@ task coverage, "generate tests coverage":
   exec fmt"""lcov {lcov_args} --remove {fileinfo} "{currentFolder}/tests/*" -o {fileinfo}"""
 
   # Generate HTML report
-  exec fmt"""genhtml --branch-coverage --legend --output-directory coverage/ {fileinfo}"""
+  exec fmt"""genhtml --branch-coverage --ignore-errors range --legend --output-directory coverage/ {fileinfo}"""
+
