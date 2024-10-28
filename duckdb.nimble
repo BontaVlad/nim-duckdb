@@ -56,3 +56,15 @@ task coverage, "generate tests coverage":
   # Generate HTML report
   exec fmt"""genhtml --branch-coverage --ignore-errors range --legend --output-directory coverage/ {fileinfo}"""
 
+task debug, "Compile and record program execution with rr":
+    let nimFile = "tests/results/test_result_type.nim"
+
+    # Step 1: Compile and run the Nim file with specific flags
+    exec "nim c -r -d:debug -d:nimDebugDlOpen --opt:none --debugger:native --stacktrace:on -d:useMalloc --mm:orc --passC:-O0 --threads:off " & nimFile
+    # Step 2: Record using rr
+    exec "rr record -M " & nimFile.replace(".nim", "")
+
+    # Step 3: Replay using rr
+    exec "rr -M replay -e"
+
+requires "pretty >= 0.1.0"

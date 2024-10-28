@@ -2,7 +2,7 @@ import unittest
 import std/[times, tables, strformat, strutils]
 import nint128
 import decimal
-import ../../src/[database, query, query_result]
+import ../../src/[database, query, query_result, vector]
 
 
 suite "results":
@@ -82,6 +82,8 @@ suite "results":
         con.execute("CREATE TABLE doubles(i DOUBLE); INSERT INTO doubles VALUES (-3.4), (0.0), (0.42);")
         let outcome = con.execute("SELECT * FROM doubles").fetchall()
         assert outcome[0].valueDouble == @[-3.4, 0.0, 0.42]
+        # let one = con.execute("SELECT * FROM doubles").fetchOne()
+        # assert one[0].valueDouble == @[-3.4]
 
       of Type.Timestamp:
         let con = connect()
@@ -143,8 +145,40 @@ suite "results":
       of Type.TimestampNs:
         let con = connect()
         let outcome = con.execute("SELECT TIMESTAMP_NS '1992-09-20 11:30:00.123456789';").fetchall()
-        echo outcome[0].valueTimestampNs[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff")
         assert outcome[0].valueTimestampNs[0].format("yyyy-MM-dd HH:mm:ss'.'ffffff") == "1992-09-20 11:30:00.123456"
+      of Type.Enum:
+        let con = connect()
+        con.execute("CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');")
+        con.execute("CREATE TABLE person (name TEXT, current_mood mood);")
+        con.execute("INSERT INTO person VALUES ('Pedro', 'happy'), ('Mark', NULL), ('Pagliacci', 'sad'), ('Mr. Mackey', 'ok');")
+        let outcome = con.execute("SELECT * FROM person WHERE current_mood = 'sad';").fetchall()
+        assert outcome[0].valueVarchar[0] == "Pagliacci"
+        assert outcome[1].valueEnum[0] == 0
+      of Type.List:
+        let
+          con = connect()
+          outcome = con.execute("SELECT CASE WHEN i % 5 = 0 THEN NULL WHEN i % 2 = 0 THEN [i, i + 1] ELSE [i * 42, NULL, i * 84] END FROM range(10) t(i)").fetchAll()
+        assert outcome[0].valueList[0][0].valueBigInt == @[42'i64, 84'i64]
+        assert outcome[0].valueList[1][0].valueBigInt == @[2'i64, 3'i64]
+        let outcomeChar = con.execute("SELECT CASE WHEN i % 2 = 0 THEN ARRAY['a', 'b'] ELSE ARRAY['c', NULL, 'd'] END FROM range(2) t(i)").fetchAll()
+        #@[@[42, 84], @[2, 3], @[126, 252], @[4, 5], @[6, 7], @[294, 588], @[8, 9], @[378, 756]]
+
+        assert outcomeChar[0].valueList[0][0].valueVarchar == @["a", "b"]
+        assert outcomeChar[0].valueList[1][0].valueVarchar == @["c", "", "d"]
+      of Type.Struct:
+# {col1: 1, col2: 142}                                                                                                                                  │
+# │ {col1: 2, col2: }                                                                                                                                     │
+# │ {col1: 3, col2: 226}                                                                                                                                  │
+# │ {col1: 4, col2: }                                                                                                                                     │
+# │                                                                                                                                                       │
+# │ {col1: 6, col2: }                                                                                                                                     │
+# │ {col1: 7, col2: 394}                                                                                                                                  │
+# │ {col1: 8, col2: }                                                                                                                                     │
+# │ {col1: 9, col2: 478}
+        let
+          con = connect()
+          outcome = con.execute("SELECT CASE WHEN i%5=0 THEN NULL ELSE {'col1': i, 'col2': CASE WHEN i%2=0 THEN NULL ELSE 100 + i * 42 END} END FROM range(10) t(i);").fetchAll()
+        echo outcome
 
     for kind in Type:
       doTest(kind)

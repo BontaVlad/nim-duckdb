@@ -42,12 +42,12 @@ template bind_val(statement: Statement, i: idx_t, val: float64): Error = duckdb_
 template bind_val(statement: Statement, i: idx_t, val: string): Error = duckdb_bind_varchar(statement, i, val.cstring)
 
 
-proc `=destroy`(appender: var Appender) =
+proc `=destroy`*(appender: var Appender) =
   if not isNil(appender.addr):
     discard duckdbAppenderDestroy(appender.addr)
 
 
-proc `=destroy`(statement: var Statement) =
+proc `=destroy`*(statement: var Statement) =
   if not isNil(statement.addr):
     duckdbDestroyPrepare(statement.addr)
 
