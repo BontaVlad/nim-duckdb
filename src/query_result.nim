@@ -1,8 +1,4 @@
-import std/[
-  sugar, sequtils, math,
-  times, tables,
-  macros
-]
+import std/[sugar, sequtils, math, times, tables, macros]
 
 import /[api, vector]
 
@@ -17,11 +13,20 @@ type
     kind: Type
     logical_type: LogicalType
 
-converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk = cast[ptr duckdbdatachunk](d)
-converter toBase*(d: DataChunk): duckdbdatachunk = cast[duckdbdatachunk](d)
-converter toBool*(d: DataChunk): bool = not isNil(d) or duckdbdatachunkgetsize(d).int > 0
-converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result = cast[ptr duckdb_pending_result](p)
-converter toBase*(p: PendingQueryResult): duckdb_pending_result = cast[duckdb_pending_result](p)
+converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk =
+  cast[ptr duckdbdatachunk](d)
+
+converter toBase*(d: DataChunk): duckdbdatachunk =
+  cast[duckdbdatachunk](d)
+
+converter toBool*(d: DataChunk): bool =
+  not isNil(d) or duckdbdatachunkgetsize(d).int > 0
+
+converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
+  cast[ptr duckdb_pending_result](p)
+
+converter toBase*(p: PendingQueryResult): duckdb_pending_result =
+  cast[duckdb_pending_result](p)
 
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
@@ -41,6 +46,7 @@ proc newChunk(qresult: QueryResult, idx: idxt): DataChunk =
   result = cast[DataChunk](duckdb_result_get_chunk(qresult, idx))
 
   # TODO: add error checking here
+
 proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result.idx = idx
   result.name = $duckdb_column_name(qresult.addr, idx)
@@ -48,13 +54,17 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result.kind = cast[Type](duckdb_column_type(qresult.addr, idx))
 
 iterator columns(qresult: QueryResult): Column {.inline.} =
-  for i in 0..<duckdb_column_count(qresult.addr):
+  for i in 0 ..< duckdb_column_count(qresult.addr):
     yield newColumn(qresult, i)
 
 proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
   let
     columns = qresult.columns.toSeq
-    chunk = if qresult.isStreaming: newChunk(qresult) else: newChunk(qresult, idx) # TODO: should check for empty
+    chunk =
+      if qresult.isStreaming:
+        newChunk(qresult)
+      else:
+        newChunk(qresult, idx) # TODO: should check for empty
 
   result = newSeq[Vector](len(columns))
   for col in columns:
@@ -69,7 +79,7 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
 #   return fetchChunk(qresult, 0)[0..0]
 
 iterator chunks*(qresult: QueryResult): seq[Vector] {.inline.} =
-  for i in 0..<duckdb_result_chunk_count(qresult):
+  for i in 0 ..< duckdb_result_chunk_count(qresult):
     yield fetchChunk(qresult, i)
 
 # macro getAttr(obj: typed, attr: static[string]): untyped =

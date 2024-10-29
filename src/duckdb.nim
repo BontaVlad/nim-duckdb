@@ -1,13 +1,7 @@
 import std/[enumerate, times, tables, strformat]
-import /[
-  database,
-  query,
-  query_result,
-  config,
-]
+import /[database, query, query_result, config]
 
 import nint128
-
 
 when isMainModule:
   # let con = connect()
@@ -36,12 +30,10 @@ when isMainModule:
   # con.execute("CREATE TABLE IF NOT EXISTS foo (nano TIMESTAMP_NS);")
   # con.execute("INSERT INTO foo VALUES ('2022-03-05 17:59:17.877')")
 
-
   let con = connect()
   con.execute("CREATE TABLE IF NOT EXISTS huge (hg HUGEINT);")
   con.execute(fmt"INSERT INTO huge VALUES ({high(Int128)})")
-  let
-    outcome = con.execute("SELECT * FROM huge").fetchall()
+  let outcome = con.execute("SELECT * FROM huge").fetchall()
   echo repr outcome
 
   # con.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
@@ -59,7 +51,6 @@ when isMainModule:
   # con.execute("INSERT INTO booleans VALUES (true), (false), (true);")
   # let outcome = con.execute("SELECT * FROM booleans").fetchall()
   # echo repr outcome
-
 
   # let con = connect()
   # con.execute("CREATE TABLE IF NOT EXISTS timestamps (sec TIMESTAMP_S, milli TIMESTAMP_MS,micro TIMESTAMP_US, nano TIMESTAMP_NS );")

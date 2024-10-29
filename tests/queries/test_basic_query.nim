@@ -1,9 +1,7 @@
 import unittest
 import ../../src/[api, database, query, query_result, exceptions]
 
-
 suite "tests":
-
   test "DuckDB init":
     let _ = connect()
 
@@ -14,12 +12,14 @@ suite "tests":
   test "Incorrect query throws an error":
     let con = connect()
     expect(OperationError):
-        con.execute("something very wrong;")
+      con.execute("something very wrong;")
 
   test "Insert with prepared statements":
     let con = connect()
     con.execute("CREATE TABLE combined(i INTEGER, j VARCHAR);")
-    con.execute("INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz"))
+    con.execute(
+      "INSERT INTO combined VALUES (6, 'foo'), (5, 'bar'), (?, ?);", ("7", "baz")
+    )
     let outcome = con.execute("SELECT * FROM combined").fetchall()
     assert outcome[0].valueInteger == @[6'i32, 5'i32, 7'i32]
     assert outcome[1].valueVarChar == @["foo", "bar", "baz"]
@@ -35,7 +35,8 @@ suite "tests":
 
   test "Insert with all appenders":
     let con = connect()
-    con.execute("""
+    con.execute(
+      """
         CREATE TABLE foo_table (
           bool_val BOOLEAN,
           int8_val TINYINT,
@@ -50,7 +51,8 @@ suite "tests":
           float64_val DOUBLE,
           string_val VARCHAR,
         );
-      """)
+      """
+    )
     var appender = newAppender(con, "foo_table")
     # let blob = @[uint8(1), uint8(2), uint8(3)]
 
@@ -86,10 +88,10 @@ suite "tests":
     assert outcome[10].valueDouble == @[3.14159265359'f64]
     assert outcome[11].valueVarChar == @["hello"]
 
-
   test "Insert with already made prepared statement":
     let con = connect()
-    con.execute("""
+    con.execute(
+      """
         CREATE TABLE prepared_table (
           bool_val BOOLEAN,
           int8_val TINYINT,
@@ -104,10 +106,15 @@ suite "tests":
           float64_val DOUBLE,
           string_val VARCHAR,
         );
-      """)
+      """
+    )
 
-    let prepared = newStatement(con, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);")
-    con.execute(prepared, (
+    let prepared = newStatement(
+      con, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);"
+    )
+    con.execute(
+      prepared,
+      (
         true,
         int8(-128),
         int16(32767),
@@ -119,8 +126,8 @@ suite "tests":
         uint64(18446744073709551615'u64),
         float32(3.14'f32),
         float64(3.14159265359'f64),
-        "hello"
-        )
+        "hello",
+      ),
     )
     let outcome = con.execute("SELECT * FROM prepared_table").fetchall()
     assert outcome[0].valueBoolean == @[true]

@@ -11,10 +11,8 @@ when defined(useFuthark):
 else:
   include "generated.nim"
 
-
 # when defined(cpp):
 #   echo "CPP"
-
 
 # template <typename TR, typename... Args>
 # 	void CreateScalarFunction(const string &name, TR (*udf_func)(Args...)) {
