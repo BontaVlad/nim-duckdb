@@ -20,12 +20,10 @@ converter toBase*(c: ptr Connection): ptr duckdb_connection =
 
 # This might be a problem, closing the database but not the connection
 proc `=destroy`(db: Database) =
-  consoleLogger.log(lvlDebug, "Closing the database")
   if not isNil(db.addr):
     duckdb_close(db.addr)
 
 proc `=destroy`(con: Connection) =
-  consoleLogger.log(lvlDebug, "Disconnecting")
   if not isNil(con.addr):
     duckdb_disconnect(con.addr)
 
@@ -37,7 +35,7 @@ proc connect*(path: string): Connection =
 proc connect*(path: string, config: Config): Connection =
   let db = DataBase()
   var error: cstring
-  let state = duckdbOpenExt(path.cstring, db.addr, config, error.addr)
+  let state: duckdb_state = duckdbOpenExt(path.cstring, db.addr, config, error.addr)
   check(state, $error)
   check(duckdbConnect(db, result.addr), "Failed to connect to database")
 

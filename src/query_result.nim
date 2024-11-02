@@ -1,6 +1,7 @@
-import std/[sugar, sequtils, math, times, tables, macros]
+import std/[sequtils, math, tables, strformat, sugar]
+import terminaltables
 
-import /[api, vector]
+import /[api, vector, value]
 
 type
   QueryResult* = object of duckdb_result
@@ -10,7 +11,7 @@ type
   Column = object
     idx: idxt
     name: string
-    kind: Type
+    kind: DuckType
     logical_type: LogicalType
 
 converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk =
@@ -48,10 +49,11 @@ proc newChunk(qresult: QueryResult, idx: idxt): DataChunk =
   # TODO: add error checking here
 
 proc newColumn(qresult: QueryResult, idx: idxt): Column =
+  result = Column()
   result.idx = idx
   result.name = $duckdb_column_name(qresult.addr, idx)
-  result.logical_type = cast[LogicalType](duckdb_column_logical_type(qresult.addr, idx))
-  result.kind = cast[Type](duckdb_column_type(qresult.addr, idx))
+  result.logical_type = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
+  result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
 
 iterator columns(qresult: QueryResult): Column {.inline.} =
   for i in 0 ..< duckdb_column_count(qresult.addr):
@@ -75,24 +77,38 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
   # TODO: not sure why I need to return here
   return result
 
-# proc fetchOne*(qresult: QueryResult): seq[Vector] {.inline.} =
-#   return fetchChunk(qresult, 0)[0..0]
+proc fetchOne*(qresult: QueryResult): seq[Vector] {.inline.} =
+  for column_vector in fetchChunk(qresult, 0):
+    result.add(column_vector[0 .. 0])
 
-iterator chunks*(qresult: QueryResult): seq[Vector] {.inline.} =
+iterator chunks*(qresult: QueryResult): seq[Vector] =
   for i in 0 ..< duckdb_result_chunk_count(qresult):
     yield fetchChunk(qresult, i)
 
-# macro getAttr(obj: typed, attr: static[string]): untyped =
-#   newDotExpr(obj, newIdentNode(attr))
+iterator rows*(qresult: QueryResult): seq[string] =
+  for chunk in qresult.chunks:
+    let
+      numColumns = len(chunk)
+      numRows = len(chunk[0])
+
+    for rowIdx in 0 ..< numRows:
+      var row = newSeq[string](numColumns)
+      for colIdx in 0 ..< numColumns:
+        row[colIdx] = $newValue(chunk[colIdx], rowIdx)
+      yield row
+
+# TODO: api not definitive
+proc fetchOneNamed*(qresult: QueryResult): Table[string, Vector] =
+  let values = fetchOne((qresult))
+  for col in qresult.columns:
+    result[col.name] = values[col.idx]
 
 # TODO: api not definitive
 proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
-  # fetchAllImpl[Table[string, Vector]]("name", qresult)
   let columns = qresult.columns.toSeq
 
   result = initTable[string, Vector]()
   for column in columns:
-    let bar = newVector(column.kind)
     result[column.name] = newVector(column.kind)
 
   for chunk in qresult.chunks:
@@ -101,7 +117,6 @@ proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
 
 # TODO: api not definitive
 proc fetchAll*(qresult: QueryResult): seq[Vector] =
-  # fetchAllImpl[seq[Vector]]("idx", qresult)
   let columns = qresult.columns.toSeq
 
   result = newSeq[Vector](len(columns))
@@ -114,3 +129,23 @@ proc fetchAll*(qresult: QueryResult): seq[Vector] =
 
 proc error*(qresult: QueryResult): string =
   result = $duckdb_result_error(qresult.addr)
+
+proc clipString(str: string, at: int = 20): string =
+  if len(str) > at:
+    result = fmt"{str[0..at]}..."
+  else:
+    result = str
+
+proc `$`*(qresult: QueryResult): string =
+  let
+    t = newUnicodeTable()
+    columns = qresult.columns.toSeq
+    headers = collect(newSeq):
+      for c in columns:
+        newCell(clipString(c.name), pad = 5)
+
+  t.separateRows = false
+  t.setHeaders(headers)
+  for row in qresult.rows:
+    t.addRow(row)
+  result = render(t)

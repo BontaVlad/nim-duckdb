@@ -1,7 +1,5 @@
 import std/[strformat, logging, enumerate]
-import /[api, database, query_result, exceptions]
-
-var logger = newConsoleLogger()
+import /[api, database, query_result, exceptions, logger]
 
 type
   Query* = distinct string
@@ -36,11 +34,12 @@ proc `=destroy`*(statement: Statement) =
     duckdbDestroyPrepare(statement.addr)
 
 proc newStatement*(con: Connection, query: Query): Statement =
-  logger.log(lvlDebug, fmt"Creating statement {query}")
+  # consoleLogger.log(lvlDebug, fmt"Creating statement {query}")
   check(duckdbPrepare(con, query, result.addr), "Failed to create prepared statement")
 
-proc `$`*(stmt: Statement): string =
-  result = $cast[cstring](stmt)
+# proc `$`*(stmt: Statement): string =
+#   echo repr stmt
+#   result = $cast[cstring](stmt)
 
 # duckdb_bind_internal(stmt::Stmt, i::Integer, val::Date) = duckdb_bind_date(stmt.handle, i, value_to_duckdb(val));
 # duckdb_bind_internal(stmt::Stmt, i::Integer, val::Time) = duckdb_bind_time(stmt.handle, i, value_to_duckdb(val));
@@ -89,7 +88,7 @@ template bind_val(statement: Statement, i: idx_t, val: string): Error =
 proc execute*[T: Values](
     con: Connection, statement: Statement, args: T
 ): QueryResult {.discardable.} =
-  logger.log(lvlDebug, fmt"Executing {statement} with {args}")
+  # consoleLogger.log(lvlDebug, fmt"Executing {statement} with {args}")
   for i, value in enumerate(args.fields):
     check(bind_val(statement, (i + 1).idx_t, value), "Failed to bind char")
   check(duckdbExecutePrepared(statement, result.addr), result.error)
