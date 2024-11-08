@@ -2,7 +2,7 @@ import unittest
 import std/[times, tables, strformat, strutils]
 import nint128
 import decimal
-import ../../src/[database, query, query_result, vector, value]
+import ../../src/[database, query, query_result, vector, value, types]
 
 suite "results":
   test "Test each DuckdbType at least once":
@@ -178,7 +178,6 @@ suite "results":
               "SELECT CASE WHEN i % 5 = 0 THEN NULL WHEN i % 2 = 0 THEN [i, i + 1] ELSE [i * 42, NULL, i * 84] END FROM range(10) t(i)"
             )
             .fetchAll()
-        echo outcome[0]
         assert outcome[0].valueList[0][0].valueBigInt == @[42'i64, 84'i64]
         assert outcome[0].valueList[1][0].valueBigInt == @[2'i64, 3'i64]
         let outcomeChar = con

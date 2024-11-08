@@ -1,7 +1,7 @@
 import std/[sequtils, math, tables, strformat, sugar]
 import terminaltables
 
-import /[api, vector, value]
+import /[api, types, vector, value]
 
 type
   QueryResult* = object of duckdb_result
@@ -46,8 +46,6 @@ proc newChunk(qresult: QueryResult): DataChunk =
 proc newChunk(qresult: QueryResult, idx: idxt): DataChunk =
   result = cast[DataChunk](duckdb_result_get_chunk(qresult, idx))
 
-  # TODO: add error checking here
-
 proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result = Column()
   result.idx = idx
@@ -55,13 +53,15 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result.logical_type = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
   result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
 
-iterator columns(qresult: QueryResult): Column {.inline.} =
+# TODO: find out why if I make this an iterator it breaks with a double free
+proc columns(qresult: QueryResult): seq[Column] =
+  result = newSeq[Column]()
   for i in 0 ..< duckdb_column_count(qresult.addr):
-    yield newColumn(qresult, i)
+    result.add(newColumn(qresult, i))
 
 proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
   let
-    columns = qresult.columns.toSeq
+    columns = qresult.columns
     chunk =
       if qresult.isStreaming:
         newChunk(qresult)
@@ -77,47 +77,36 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
   # TODO: not sure why I need to return here
   return result
 
-proc fetchOne*(qresult: QueryResult): seq[Vector] {.inline.} =
+# TODO: not great
+proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
   for column_vector in fetchChunk(qresult, 0):
-    result.add(column_vector[0 .. 0])
+    result.add(column_vector[0])
 
 iterator chunks*(qresult: QueryResult): seq[Vector] =
   for i in 0 ..< duckdb_result_chunk_count(qresult):
     yield fetchChunk(qresult, i)
 
-iterator rows*(qresult: QueryResult): seq[string] =
+iterator rows*(qresult: QueryResult): seq[Value] =
   for chunk in qresult.chunks:
     let
       numColumns = len(chunk)
       numRows = len(chunk[0])
 
     for rowIdx in 0 ..< numRows:
-      var row = newSeq[string](numColumns)
+      var row = newSeq[Value](numColumns)
       for colIdx in 0 ..< numColumns:
-        row[colIdx] = $newValue(chunk[colIdx], rowIdx)
+        row[colIdx] = chunk[colIdx][rowIdx]
       yield row
 
 # TODO: api not definitive
-proc fetchOneNamed*(qresult: QueryResult): Table[string, Vector] =
+proc fetchOneNamed*(qresult: QueryResult): Table[string, Value] =
   let values = fetchOne((qresult))
   for col in qresult.columns:
     result[col.name] = values[col.idx]
 
 # TODO: api not definitive
-proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
-  let columns = qresult.columns.toSeq
-
-  result = initTable[string, Vector]()
-  for column in columns:
-    result[column.name] = newVector(column.kind)
-
-  for chunk in qresult.chunks:
-    for column in columns:
-      result[column.name] &= chunk[column.idx]
-
-# TODO: api not definitive
 proc fetchAll*(qresult: QueryResult): seq[Vector] =
-  let columns = qresult.columns.toSeq
+  let columns = qresult.columns
 
   result = newSeq[Vector](len(columns))
   for column in columns:
@@ -126,6 +115,16 @@ proc fetchAll*(qresult: QueryResult): seq[Vector] =
   for chunk in qresult.chunks:
     for column in columns:
       result[column.idx] &= chunk[column.idx]
+
+# TODO: api not definitive
+proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
+  let
+    columns = qresult.columns
+    data = fetchAll(qresult)
+
+  result = initTable[string, Vector]()
+  for i, column in columns:
+    result[column.name] = data[i]
 
 proc error*(qresult: QueryResult): string =
   result = $duckdb_result_error(qresult.addr)
@@ -139,13 +138,9 @@ proc clipString(str: string, at: int = 20): string =
 proc `$`*(qresult: QueryResult): string =
   let
     t = newUnicodeTable()
-    columns = qresult.columns.toSeq
-    headers = collect(newSeq):
-      for c in columns:
-        newCell(clipString(c.name), pad = 5)
+    headers = qresult.columns.map(c => newCell(clipString(c.name), pad = 5))
 
-  t.separateRows = false
   t.setHeaders(headers)
-  for row in qresult.rows:
-    t.addRow(row)
-  result = render(t)
+  t.separateRows = false
+  t.addRows(qresult.rows.toSeq.map(row => row.map(e => $e)))
+  result = t.render()

@@ -1,103 +1,131 @@
+# {.experimental: "codeReordering".}
 import std/[sugar, tables, times, math, strformat, logging]
 
 import nint128
 import decimal
 
-import /[api, logger, value]
+import /[api, value, types]
 
 const
   BITS_PER_VALUE = 64
   STRING_INLINE_LENGTH = 12
   SECONDS_PER_DAY = 86400
 
-type
-  DuckString = distinct cstring
+proc `$`*(vector: Vector): string =
+  case vector.kind
+  of DuckType.Invalid:
+    result = $vector.valueInvalid
+  of DuckType.Boolean:
+    result = $vector.valueBoolean
+  of DuckType.TinyInt:
+    result = $vector.valueTinyint
+  of DuckType.SmallInt:
+    result = $vector.valueSmallint
+  of DuckType.Integer:
+    result = $vector.valueInteger
+  of DuckType.BigInt:
+    result = $vector.valueBigint
+  of DuckType.UTinyInt:
+    result = $vector.valueUtinyint
+  of DuckType.USmallInt:
+    result = $vector.valueUsmallint
+  of DuckType.UInteger:
+    result = $vector.valueUinteger
+  of DuckType.UBigInt:
+    result = $vector.valueUbigint
+  of DuckType.Float:
+    result = $vector.valueFloat
+  of DuckType.Double:
+    result = $vector.valueDouble
+  of DuckType.Timestamp:
+    result = $vector.valueTimestamp
+  of DuckType.Date:
+    result = $vector.valueDate
+  of DuckType.Time:
+    result = $vector.valueTime
+  of DuckType.Interval:
+    result = $vector.valueInterval
+  of DuckType.HugeInt:
+    result = $vector.valueHugeInt
+  of DuckType.VarChar:
+    result = $vector.valueVarchar
+  of DuckType.Blob:
+    result = $vector.valueBlob
+  of DuckType.Decimal:
+    result = $vector.valueDecimal
+  of DuckType.TimestampS:
+    result = $vector.valueTimestampS
+  of DuckType.TimestampMs:
+    result = $vector.valueTimestampMs
+  of DuckType.TimestampNs:
+    result = $vector.valueTimestampNs
+  of DuckType.Enum:
+    result = $vector.valueEnum
+  of DuckType.List:
+    result = $vector.valueList
+  of DuckType.Struct:
+    result = $vector.valueStruct
+  of DuckType.Map:
+    result = $vector.valueMap
 
-  Vector* = object
-    mask: seq[uint64] = newSeq[uint64]()
-    case kind*: DuckType
-    of DuckType.Invalid: valueInvalid*: uint8
-    of DuckType.Boolean: valueBoolean*: seq[bool]
-    of DuckType.TinyInt: valueTinyint*: seq[int8]
-    of DuckType.SmallInt: valueSmallint*: seq[int16]
-    of DuckType.Integer: valueInteger*: seq[int32]
-    of DuckType.BigInt: valueBigint*: seq[int64]
-    of DuckType.UTinyInt: valueUTinyint*: seq[uint8]
-    of DuckType.USmallInt: valueUSmallint*: seq[uint16]
-    of DuckType.UInteger: valueUInteger*: seq[uint32]
-    of DuckType.UBigInt: valueUBigint*: seq[uint64]
-    of DuckType.Float: valueFloat*: seq[float32]
-    of DuckType.Double: valueDouble*: seq[float64]
-    of DuckType.Timestamp: valueTimestamp*: seq[DateTime]
-    of DuckType.Date: valueDate*: seq[DateTime]
-    of DuckType.Time: valueTime*: seq[Time]
-    of DuckType.Interval: valueInterval*: seq[TimeInterval]
-    of DuckType.HugeInt: valueHugeint*: seq[Int128]
-    of DuckType.Varchar: valueVarchar*: seq[string]
-    of DuckType.Blob: valueBlob*: seq[seq[byte]]
-    of DuckType.Decimal: valueDecimal*: seq[DecimalType]
-    of DuckType.TimestampS: valueTimestampS*: seq[DateTime]
-    of DuckType.TimestampMs: valueTimestampMs*: seq[DateTime]
-    of DuckType.TimestampNs: valueTimestampNs*: seq[DateTime]
-    of DuckType.Enum: valueEnum*: seq[uint]
-    of DuckType.List: valueList*: seq[seq[Vector]]
-    of DuckType.Struct: valueStruct*: seq[Table[string, Value]]
-    # of DuckType.Map         :            valueMap*: seq[Table[Vector, Vector]]               # Similar to Struct
-    # of DuckType.UUID        :           valueUUID*: seq[string]                              # UUID stored as a string
-    # of DuckType.Union       :          valueUnion*: seq[Vector]                              # Union of types
-    # of DuckType.Bit         :            valueBit*: seq[bool]
-    # of DuckType.TimeTz      :         valueTimeTz*: seq[tuple[time: Time, timezone: string]] # Time with timezone
-    # of DuckType.TimestampTz :    valueTimestampTz*: seq[tuple[timestamp: Time, timezone: string]]
-    # of DuckType.UHugeInt    :       valueUHugeint*: seq[tuple[high: uint64, low: uint64]]    # Unsigned 128-bit int
-    # of DuckType.Array       :          valueArray*: seq[Vector]                              # Array of vectors
-    # of DuckType.Any         :            valueAny*: seq[RootRef]
-    # of DuckType.VarInt      :         valueVarint*: seq[int]                                 # Variable-sized integer
-    # of DuckType.SqlNull     :        valueSqlNull*: seq[bool]                                # SqlNull could be a boolean
+proc len*(vec: Vector): int =
+  case vec.kind
+  of DuckType.Invalid:
+    result = 0
+  of DuckType.Boolean:
+    result = vec.valueBoolean.len
+  of DuckType.TinyInt:
+    result = vec.valueTinyint.len
+  of DuckType.SmallInt:
+    result = vec.valueSmallint.len
+  of DuckType.Integer:
+    result = vec.valueInteger.len
+  of DuckType.BigInt:
+    result = vec.valueBigint.len
+  of DuckType.UTinyInt:
+    result = vec.valueUTinyint.len
+  of DuckType.USmallInt:
+    result = vec.valueUSmallint.len
+  of DuckType.UInteger:
+    result = vec.valueUInteger.len
+  of DuckType.UBigInt:
+    result = vec.valueUBigint.len
+  of DuckType.Float:
+    result = vec.valueFloat.len
+  of DuckType.Double:
+    result = vec.valueDouble.len
+  of DuckType.Timestamp:
+    result = vec.valueTimestamp.len
+  of DuckType.TimestampS:
+    result = vec.valueTimestampS.len
+  of DuckType.TimestampMs:
+    result = vec.valueTimestampMs.len
+  of DuckType.TimestampNs:
+    result = vec.valueTimestampNs.len
+  of DuckType.Date:
+    result = vec.valueDate.len
+  of DuckType.Time:
+    result = vec.valueTime.len
+  of DuckType.Interval:
+    result = vec.valueInterval.len
+  of DuckType.HugeInt:
+    result = vec.valueHugeint.len
+  of DuckType.Varchar:
+    result = vec.valueVarchar.len
+  of DuckType.Blob:
+    result = vec.valueBlob.len
+  of DuckType.Decimal:
+    result = vec.valueDecimal.len
+  of DuckType.Enum:
+    result = vec.valueEnum.len
+  of DuckType.List:
+    result = vec.valueList.len
+  of DuckType.Struct:
+    result = vec.valueStruct.len
+  of DuckType.Map:
+    result = vec.valueMap.len
 
-  LogicalType* = object
-    handle*: duckdb_logical_type
-
-# converter toBase*(l: ptr LogicalType): ptr duckdb_logical_type =
-#   cast[ptr duckdb_logical_type](l)
-
-# converter toBase*(l: LogicalType): duckdb_logical_type =
-#   cast[duckdb_logical_type](l)
-
-proc `=destroy`*(ltp: LogicalType) =
-  # consoleLogger.log(lvlDebug, fmt"destroy: {cast[int](addr(ltp)):#x}")
-  # consoleLogger.log(lvlDebug, fmt"Freed logical type: {cast[int](addr(ltp)):#x}")
-  # consoleLogger.log(
-  #   lvlDebug, fmt"destroy: {cast[int](ltp.addr):#x} -> {cast[int](ltp.handle):#x}"
-  # )
-  if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
-    duckdb_destroy_logical_type(ltp.handle.addr)
-
-proc `=destroy`*(dstr: DuckString) =
-  if not dstr.cstring.isNil:
-    duckdb_free(cast[pointer](dstr.cstring))
-
-proc `$`*(dstr: DuckString): string =
-  if dstr.cstring.isNil:
-    return ""
-  result = $dstr.cstring
-
-proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
-  result = DuckType(ord(i))
-
-proc newDuckType*(i: LogicalType): DuckType =
-  let id = duckdb_get_type_id(i.handle)
-  result = DuckType(ord(id))
-
-proc newLogicalType*(i: duckdb_logical_type): LogicalType =
-  result = LogicalType(handle: i)
-  # consoleLogger.log(
-  #   lvlDebug, fmt"create: {cast[int](result.addr):#x} -> {cast[int](result.handle):#x}"
-  # )
-
-proc `$`*(ltp: LogicalType): string =
-  result = $DuckString(duckdb_logical_type_get_alias(ltp.handle))
-
-
+# has a bug when more chunks are present
 proc isValid*(vec: Vector, idx: int): bool {.inline.} =
   let
     entryIdx = idx div BITS_PER_VALUE
@@ -110,7 +138,6 @@ template collectValid[T, U](
   let raw = cast[ptr UncheckedArray[T]](handle)
   collect:
     for i in offset ..< size:
-      # if vec.isValid(i):
       transform(raw[i])
 
 template collectValidString[T](
@@ -177,69 +204,77 @@ template parseDecimalHugeInt(
       fractional = cast[float](value) / pow(10.float, scale.float)
     newDecimal($fractional)
 
-proc newValue*(vec: Vector, idx: int): Value =
+proc vecToValue*(vec: Vector, idx: int): Value =
   let isValid = vec.isValid(idx)
   case vec.kind
   of DuckType.Invalid:
-    return newValue(vec.kind, isValid)
+    result = newValue(vec.kind, isValid)
   of DuckType.Boolean:
-    return newValue(vec.kind, isValid, vec.valueBoolean[idx])
+    result = newValue(vec.kind, isValid, vec.valueBoolean[idx])
   of DuckType.TinyInt:
-    return newValue(vec.kind, isValid, vec.valueTinyint[idx])
+    result = newValue(vec.kind, isValid, vec.valueTinyint[idx])
   of DuckType.SmallInt:
-    return newValue(vec.kind, isValid, vec.valueSmallint[idx])
+    result = newValue(vec.kind, isValid, vec.valueSmallint[idx])
   of DuckType.Integer:
-    return newValue(vec.kind, isValid, vec.valueInteger[idx])
+    result = newValue(vec.kind, isValid, vec.valueInteger[idx])
   of DuckType.BigInt:
-    return newValue(vec.kind, isValid, vec.valueBigint[idx])
+    result = newValue(vec.kind, isValid, vec.valueBigint[idx])
   of DuckType.UTinyInt:
-    return newValue(vec.kind, isValid, vec.valueUTinyint[idx])
+    result = newValue(vec.kind, isValid, vec.valueUTinyint[idx])
   of DuckType.USmallInt:
-    return newValue(vec.kind, isValid, vec.valueUSmallint[idx])
+    result = newValue(vec.kind, isValid, vec.valueUSmallint[idx])
   of DuckType.UInteger:
-    return newValue(vec.kind, isValid, vec.valueUInteger[idx])
+    result = newValue(vec.kind, isValid, vec.valueUInteger[idx])
   of DuckType.UBigInt:
-    return newValue(vec.kind, isValid, vec.valueUBigint[idx])
+    result = newValue(vec.kind, isValid, vec.valueUBigint[idx])
   of DuckType.Float:
-    return newValue(vec.kind, isValid, vec.valueFloat[idx])
+    result = newValue(vec.kind, isValid, vec.valueFloat[idx])
   of DuckType.Double:
-    return newValue(vec.kind, isValid, vec.valueDouble[idx])
-  of DuckType.Timestamp, DuckType.TimestampS, DuckType.TimestampMs, DuckType.TimestampNs:
-    return newValue(vec.kind, isValid, vec.valueTimestamp[idx])
+    result = newValue(vec.kind, isValid, vec.valueDouble[idx])
+  of DuckType.Timestamp:
+    result = newValue(vec.kind, isValid, vec.valueTimestamp[idx])
+  of DuckType.TimestampS:
+    result = newValue(vec.kind, isValid, vec.valueTimestampS[idx])
+  of DuckType.TimestampMs:
+    result = newValue(vec.kind, isValid, vec.valueTimestampMs[idx])
+  of DuckType.TimestampNs:
+    result = newValue(vec.kind, isValid, vec.valueTimestampNs[idx])
   of DuckType.Date:
-    return newValue(vec.kind, isValid, vec.valueDate[idx])
+    result = newValue(vec.kind, isValid, vec.valueDate[idx])
   of DuckType.Time:
-    return newValue(vec.kind, isValid, vec.valueTime[idx])
+    result = newValue(vec.kind, isValid, vec.valueTime[idx])
   of DuckType.Interval:
-    return newValue(vec.kind, isValid, vec.valueInterval[idx])
+    result = newValue(vec.kind, isValid, vec.valueInterval[idx])
+  # TODO: implement this
   of DuckType.HugeInt:
     discard
     # let lower = uint64(vec.valueHugeint[idx])
     # let upper = uint64((vec.valueHugeint[idx] shr 64))
-    # return newValue(vec.kind, isValid, lower, upper)
+    # result = newValue(vec.kind, isValid, lower, upper)
   of DuckType.Varchar:
-    return newValue(vec.kind, isValid, vec.valueVarchar[idx])
+    result = newValue(vec.kind, isValid, vec.valueVarchar[idx])
   of DuckType.Blob:
-    return newValue(vec.kind, isValid, vec.valueBlob[idx])
+    result = newValue(vec.kind, isValid, vec.valueBlob[idx])
   of DuckType.Decimal:
-    return newValue(vec.kind, isValid, vec.valueDecimal[idx])
+    result = newValue(vec.kind, isValid, vec.valueDecimal[idx])
   of DuckType.Enum:
-    return newValue(vec.kind, isValid, vec.valueEnum[idx])
+    result = newValue(vec.kind, isValid, vec.valueEnum[idx])
   of DuckType.List:
-    discard
-    # return newValue(vec.kind, isValid, vec.valueList[idx])
+    result = newValue(vec.kind, isValid, vec.valueList[idx])
   of DuckType.Struct:
-    discard
-    # return newValue(vec.kind, isValid, vec.valueStruct[idx])
-  else:
-    raise newException(ValueError, "Unsupported DuckType in Vector")
+    result = newValue(vec.kind, isValid, vec.valueStruct[idx])
+  of DuckType.Map:
+    result = newValue(vec.kind, isValid, vec.valueMap[idx])
+
+iterator items*(vec: Vector): Value =
+  for idx in 0 ..< vec.len:
+    yield vecToValue(vec, idx)
 
 proc newVector*(kind: DuckType): Vector =
   result = Vector(kind: kind)
   case kind
   of DuckType.Invalid:
-    result.valueInvalid = 0
-  # TODO: maybe raise an exception
+    raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     result.valueBoolean = newSeq[bool]()
   of DuckType.TinyInt:
@@ -287,10 +322,9 @@ proc newVector*(kind: DuckType): Vector =
   of DuckType.Enum:
     result.valueEnum = newSeq[uint]()
   of DuckType.List:
-    result.valueList = newSeq[seq[Vector]]()
-  of DuckType.Struct:
+    result.valueList = newSeq[seq[Value]]()
+  of DuckType.Struct, DuckType.Map:
     result.valueStruct = newSeq[Table[string, Value]]()
-  # of DuckType.Map:            result.valueMap         = newSeq[Table[Vector, Vector]]()
   # of DuckType.UUID:           result.valueUUID        = newSeq[string]()
   # of DuckType.Union:          result.valueUnion       = newSeq[Vector]()
   # of DuckType.Bit:            result.valueBit         = newSeq[bool]()
@@ -301,64 +335,6 @@ proc newVector*(kind: DuckType): Vector =
   # of DuckType.Any:            result.valueAny         = newSeq[RootRef]()
   # of DuckType.VarInt:         result.valueVarint      = newSeq[int]()
   # of DuckType.SqlNull:        result.valueSqlNull     = newSeq[bool]()
-
-# # TODO: this will not work
-# proc `[]`*(this: Vector, r: HSlice[int, int]): Vector =
-#   result = newVector(kind = this.kind)
-#   case this.kind
-#   of DuckType.Invalid:
-#     discard
-#   # for now
-#   of DuckType.Boolean:
-#     result.valueBoolean = this.valueBoolean[r.a .. r.b]
-#   of DuckType.TinyInt:
-#     result.valueTinyint = this.valueTinyint[r.a .. r.b]
-#   of DuckType.SmallInt:
-#     result.valueSmallint = this.valueSmallint[r.a .. r.b]
-#   of DuckType.Integer:
-#     result.valueInteger = this.valueInteger[r.a .. r.b]
-#   of DuckType.BigInt:
-#     result.valueBigint = this.valueBigint[r.a .. r.b]
-#   of DuckType.UTinyInt:
-#     result.valueUtinyint = this.valueUtinyint[r.a .. r.b]
-#   of DuckType.USmallInt:
-#     result.valueUsmallint = this.valueUsmallint[r.a .. r.b]
-#   of DuckType.UInteger:
-#     result.valueUinteger = this.valueUinteger[r.a .. r.b]
-#   of DuckType.UBigInt:
-#     result.valueUbigint = this.valueUbigint[r.a .. r.b]
-#   of DuckType.Float:
-#     result.valueFloat = this.valueFloat[r.a .. r.b]
-#   of DuckType.Double:
-#     result.valueDouble = this.valueDouble[r.a .. r.b]
-#   of DuckType.Timestamp:
-#     result.valueTimestamp = this.valueTimestamp[r.a .. r.b]
-#   of DuckType.Date:
-#     result.valueDate = this.valueDate[r.a .. r.b]
-#   of DuckType.Time:
-#     result.valueTime = this.valueTime[r.a .. r.b]
-#   of DuckType.Interval:
-#     result.valueInterval = this.valueInterval[r.a .. r.b]
-#   of DuckType.HugeInt:
-#     result.valueHugeInt = this.valueHugeInt[r.a .. r.b]
-#   of DuckType.VarChar:
-#     result.valueVarchar = this.valueVarchar[r.a .. r.b]
-#   of DuckType.Blob:
-#     result.valueBlob = this.valueBlob[r.a .. r.b]
-#   of DuckType.Decimal:
-#     result.valueDecimal = this.valueDecimal[r.a .. r.b]
-#   of DuckType.TimestampS:
-#     result.valueTimestampS = this.valueTimestampS[r.a .. r.b]
-#   of DuckType.TimestampMs:
-#     result.valueTimestampMs = this.valueTimestampMs[r.a .. r.b]
-#   of DuckType.TimestampNs:
-#     result.valueTimestampNs = this.valueTimestampNs[r.a .. r.b]
-#   of DuckType.Enum:
-#     result.valueEnum = this.valueEnum[r.a .. r.b]
-#   of DuckType.List:
-#     result.valueList = this.valueList[r.a .. r.b]
-#   of DuckType.Struct:
-#     result.valueStruct = this.valueStruct[r.a .. r.b]
 
 # TODO: make this prettier with macros
 proc newVector*(
@@ -491,22 +467,22 @@ proc newVector*(
       raw = cast[ptr UncheckedArray[duckdb_list_entry]](handle)
       children = duckdb_list_vector_get_child(vec)
 
-    result.valueList = collect:
-      for i in offset ..< size:
-        echo isValid(result, i)
-        if isValid(result, i):
-          let
-            list_data = raw[i]
-            child_type =
-              newLogicalType(duckdb_list_type_child_type(logical_type.handle))
-            child = newVector(
-              vec = children,
-              offset = list_data.offset.int,
-              size = (list_data.offset + list_data.length).int,
-              kind = newDuckType(child_type),
-              logical_type = child_type,
-            )
-          @[child]
+    for i in offset ..< size:
+      if isValid(result, i):
+        let
+          list_data = raw[i]
+          child_type = newLogicalType(duckdb_list_type_child_type(logical_type.handle))
+          child = newVector(
+            vec = children,
+            offset = list_data.offset.int,
+            size = (list_data.offset + list_data.length).int,
+            kind = newDuckType(child_type),
+            logical_type = child_type,
+          )
+        var child_array = newSeq[Value]()
+        for c in child:
+          child_array.add(cast[Value](c))
+        result.valueList.add(child_array)
   of DuckType.Struct:
     let child_count = duckdb_struct_type_child_count(logical_type.handle).int
     var vectorStruct = initTable[string, Vector]()
@@ -526,70 +502,38 @@ proc newVector*(
           kind = newDuckType(child_type),
           logical_type = child_type,
         )
-
       vectorStruct[$child_name] = child
     result.valueStruct = collect:
       for i in offset ..< size:
         var row = initTable[string, Value]()
         for key, child_vector in vectorStruct.pairs:
-          # row[key] = newValue(child_vector.kind, child_vector.valueBigint[i])
-          row[key] = newValue(child_vector, i)
+          row[key] = vecToValue(child_vector, i)
         row
+  of DuckType.Map:
+    let
+      # don't know how to make use of key_type and value_type
+      key_type = newLogicalType(duckdb_map_type_key_type(logical_type.handle))
+      value_type = newLogicalType(duckdb_map_type_value_type(logical_type.handle))
+      children = duckdb_list_vector_get_child(vec)
+      lsize = duckdb_list_vector_get_size(vec)
+      child_type = newLogicalType(duckdb_list_type_child_type(logical_type.handle))
 
-proc `$`*(vector: Vector): string =
-  case vector.kind
-  of DuckType.Invalid:
-    $vector.valueInvalid
-  of DuckType.Boolean:
-    $vector.valueBoolean
-  of DuckType.TinyInt:
-    $vector.valueTinyint
-  of DuckType.SmallInt:
-    $vector.valueSmallint
-  of DuckType.Integer:
-    $vector.valueInteger
-  of DuckType.BigInt:
-    $vector.valueBigint
-  of DuckType.UTinyInt:
-    $vector.valueUtinyint
-  of DuckType.USmallInt:
-    $vector.valueUsmallint
-  of DuckType.UInteger:
-    $vector.valueUinteger
-  of DuckType.UBigInt:
-    $vector.valueUbigint
-  of DuckType.Float:
-    $vector.valueFloat
-  of DuckType.Double:
-    $vector.valueDouble
-  of DuckType.Timestamp:
-    $vector.valueTimestamp
-  of DuckType.Date:
-    $vector.valueDate
-  of DuckType.Time:
-    $vector.valueTime
-  of DuckType.Interval:
-    $vector.valueInterval
-  of DuckType.HugeInt:
-    $vector.valueHugeInt
-  of DuckType.VarChar:
-    $vector.valueVarchar
-  of DuckType.Blob:
-    $vector.valueBlob
-  of DuckType.Decimal:
-    $vector.valueDecimal
-  of DuckType.TimestampS:
-    $vector.valueTimestampS
-  of DuckType.TimestampMs:
-    $vector.valueTimestampMs
-  of DuckType.TimestampNs:
-    $vector.valueTimestampNs
-  of DuckType.Enum:
-    $vector.valueEnum
-  of DuckType.List:
-    $vector.valueList
-  of DuckType.Struct:
-    $vector.valueStruct
+    result.valueMap = collect:
+      for i in 0 ..< size:
+        var vectorMap = initTable[string, Value]()
+        let elements = newVector(
+          vec = children,
+          offset = 0,
+          size = lsize.int,
+          kind = newDuckType(child_type),
+          logical_type = child_type,
+        )
+        for e in elements.valueStruct:
+          vectorMap[$e["key"]] = e["value"]
+        vectorMap
+
+proc `[]`*(v: Vector, idx: int): Value =
+  result = vecToValue(v, idx)
 
 func `&=`*(left: var Vector, right: Vector): void =
   if left.kind != right.kind:
@@ -598,10 +542,11 @@ func `&=`*(left: var Vector, right: Vector): void =
       fmt"Vector.kind:{left.kind} != Vector.kind:{right.kind}. Can't concatenate different kinds of vectors",
     )
 
+  # TODO: this is not how mask works
+  left.mask &= right.mask
   case left.kind
   of DuckType.Invalid:
-    discard
-  # for now
+    raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     left.valueBoolean &= right.valueBoolean
   of DuckType.TinyInt:
@@ -652,146 +597,5 @@ func `&=`*(left: var Vector, right: Vector): void =
     left.valueList &= right.valueList
   of DuckType.Struct:
     left.valueStruct &= right.valueStruct
-
-proc len*(vec: Vector): int =
-  case vec.kind
-  of DuckType.Invalid:
-    return 0
-  of DuckType.Boolean:
-    return vec.valueBoolean.len
-  of DuckType.TinyInt:
-    return vec.valueTinyint.len
-  of DuckType.SmallInt:
-    return vec.valueSmallint.len
-  of DuckType.Integer:
-    return vec.valueInteger.len
-  of DuckType.BigInt:
-    return vec.valueBigint.len
-  of DuckType.UTinyInt:
-    return vec.valueUTinyint.len
-  of DuckType.USmallInt:
-    return vec.valueUSmallint.len
-  of DuckType.UInteger:
-    return vec.valueUInteger.len
-  of DuckType.UBigInt:
-    return vec.valueUBigint.len
-  of DuckType.Float:
-    return vec.valueFloat.len
-  of DuckType.Double:
-    return vec.valueDouble.len
-  of DuckType.Timestamp, DuckType.TimestampS, DuckType.TimestampMs, DuckType.TimestampNs:
-    return vec.valueTimestamp.len
-  of DuckType.Date:
-    return vec.valueDate.len
-  of DuckType.Time:
-    return vec.valueTime.len
-  of DuckType.Interval:
-    return vec.valueInterval.len
-  of DuckType.HugeInt:
-    return vec.valueHugeint.len
-  of DuckType.Varchar:
-    return vec.valueVarchar.len
-  of DuckType.Blob:
-    return vec.valueBlob.len
-  of DuckType.Decimal:
-    return vec.valueDecimal.len
-  of DuckType.Enum:
-    return vec.valueEnum.len
-  of DuckType.List:
-    return vec.valueList.len
-  of DuckType.Struct:
-    return vec.valueStruct.len
-
-iterator items*(vec: Vector): Value =
-  for idx in 0 ..< vec.len:
-    yield newValue(vec, idx)
-
-proc `[]`*(v: Vector, idx: int): Value =
-  result = newValue(v, idx)
-
-proc `[]`*(v: Vector, slice: HSlice[int, int]): Vector =
-
-  # Validate slice bounds
-  let start = slice.a
-  let stop = slice.b
-
-  if start < 0 or stop >= v.mask.len or start > stop:
-    raise newException(IndexDefect, "Invalid vector slice")
-
-  # Create a new vector with the same kind
-  result = Vector(kind: v.kind, mask: newSeq[uint64]())
-
-  # Calculate the number of mask words needed for the slice
-  let startMaskWord = start div 64
-  let endMaskWord = stop div 64
-  let startBit = start mod 64
-  let endBit = stop mod 64
-
-  # Copy and adjust the mask
-  for i in startMaskWord .. endMaskWord:
-    var maskWord = v.mask[i]
-
-    # Adjust mask for the first and last words if needed
-    if i == startMaskWord:
-      maskWord = maskWord shr startBit
-    if i == endMaskWord:
-      # Clear bits after the last bit in the last mask word
-      let clearBits = 64 - endBit - 1
-      maskWord = maskWord and ((1'u64 shl (endBit + 1)) - 1)
-
-    result.mask.add(maskWord)
-
-  # Copy data based on the vector's kind
-  case v.kind
-  of DuckType.Invalid:
-    discard
-  of DuckType.Boolean:
-    result.valueBoolean = v.valueBoolean[start .. stop]
-  of DuckType.TinyInt:
-    result.valueTinyint = v.valueTinyint[start .. stop]
-  of DuckType.SmallInt:
-    result.valueSmallint = v.valueSmallint[start .. stop]
-  of DuckType.Integer:
-    result.valueInteger = v.valueInteger[start .. stop]
-  of DuckType.BigInt:
-    result.valueBigint = v.valueBigint[start .. stop]
-  of DuckType.UTinyInt:
-    result.valueUTinyint = v.valueUTinyint[start .. stop]
-  of DuckType.USmallInt:
-    result.valueUSmallint = v.valueUSmallint[start .. stop]
-  of DuckType.UInteger:
-    result.valueUInteger = v.valueUInteger[start .. stop]
-  of DuckType.UBigInt:
-    result.valueUBigint = v.valueUBigint[start .. stop]
-  of DuckType.Float:
-    result.valueFloat = v.valueFloat[start .. stop]
-  of DuckType.Double:
-    result.valueDouble = v.valueDouble[start .. stop]
-  of DuckType.Timestamp:
-    result.valueTimestamp = v.valueTimestamp[start .. stop]
-  of DuckType.Date:
-    result.valueDate = v.valueDate[start .. stop]
-  of DuckType.Time:
-    result.valueTime = v.valueTime[start .. stop]
-  of DuckType.Interval:
-    result.valueInterval = v.valueInterval[start .. stop]
-  of DuckType.HugeInt:
-    result.valueHugeint = v.valueHugeint[start .. stop]
-  of DuckType.Varchar:
-    result.valueVarchar = v.valueVarchar[start .. stop]
-  of DuckType.Blob:
-    result.valueBlob = v.valueBlob[start .. stop]
-  of DuckType.Decimal:
-    result.valueDecimal = v.valueDecimal[start .. stop]
-  of DuckType.TimestampS:
-    result.valueTimestampS = v.valueTimestampS[start .. stop]
-  of DuckType.TimestampMs:
-    result.valueTimestampMs = v.valueTimestampMs[start .. stop]
-  of DuckType.TimestampNs:
-    result.valueTimestampNs = v.valueTimestampNs[start .. stop]
-  of DuckType.Enum:
-    result.valueEnum = v.valueEnum[start .. stop]
-  of DuckType.List:
-    result.valueList = v.valueList[start .. stop]
-  of DuckType.Struct:
-    result.valueStruct = v.valueStruct[start .. stop]
+  of DuckType.Map:
+    left.valueMap &= right.valueMap
