@@ -1,15 +1,16 @@
 import std/[tables, times, math]
 import nint128
 import decimal
+import uuid4
 
 import /[types]
 
 proc `$`*(v: Value): string =
   if not v.isValid:
-    return "Invalid Value"
+    return ""
 
   case v.kind
-  of DuckType.Invalid:
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
   of DuckType.Boolean:
     result = $v.valueBoolean
@@ -63,6 +64,14 @@ proc `$`*(v: Value): string =
     result = $v.valueStruct
   of DuckType.Map:
     result = $v.valueMap
+  of DuckType.UUID:
+    result = $v.valueUuid
+  of DuckType.Union:
+    result = $v.valueUnion
+  of DuckType.Bit:
+    result = $v.valueBit
+  of DuckType.TimeTz:
+    result = $v.valueTimeTz
 
 proc newValue*(kind: DuckType, isValid: bool, val: bool): Value =
   result = Value(kind: kind, isValid: isValid)
@@ -99,10 +108,10 @@ proc newValue*(kind: DuckType, isValid: bool, val: int64): Value =
   else:
     raise newException(ValueError, "Expected DuckType.BigInt for int64 value")
 
-proc newValue*(kind: DuckType, isValid: bool, lower, upper: uint64): Value =
+proc newValue*(kind: DuckType, isValid: bool, val: Int128): Value =
   result = Value(kind: kind, isValid: isValid)
   if kind == DuckType.HugeInt:
-    result.valueHugeint = add64Plus64ToI128(lower, (upper shl 64))
+    result.valueHugeint = val
   else:
     raise newException(ValueError, "Expected DuckType.HugeInt for int64 value")
 
@@ -151,8 +160,14 @@ proc newValue*(kind: DuckType, isValid: bool, val: float64): Value =
 proc newValue*(kind: DuckType, isValid: bool, val: DateTime): Value =
   result = Value(kind: kind, isValid: isValid)
   case kind
-  of DuckType.Timestamp, DuckType.TimestampS, DuckType.TimestampMs, DuckType.TimestampNs:
+  of DuckType.Timestamp:
     result.valueTimestamp = val
+  of DuckType.TimestampS:
+    result.valueTimestampS = val
+  of DuckType.TimestampMs:
+    result.valueTimestampMs = val
+  of DuckType.TimestampNs:
+    result.valueTimestampNs = val
   of DuckType.Date:
     result.valueDate = val
   else:
@@ -167,6 +182,13 @@ proc newValue*(kind: DuckType, isValid: bool, val: Time): Value =
   else:
     raise newException(ValueError, "Expected DuckType.Time for Time value")
 
+proc newValue*(kind: DuckType, isValid: bool, val: ZonedTime): Value =
+  result = Value(kind: kind, isValid: isValid)
+  if kind == DuckType.TimeTz:
+    result.valueTimeTz = val
+  else:
+    raise newException(ValueError, "Expected DuckType.Time for Time value")
+
 proc newValue*(kind: DuckType, isValid: bool, val: TimeInterval): Value =
   result = Value(kind: kind, isValid: isValid)
   if kind == DuckType.Interval:
@@ -178,8 +200,10 @@ proc newValue*(kind: DuckType, isValid: bool, val: string): Value =
   result = Value(kind: kind, isValid: isValid)
   if kind == DuckType.Varchar:
     result.valueVarchar = val
+  elif kind == DuckType.Bit:
+    result.valueBit = val
   else:
-    raise newException(ValueError, "Expected DuckType.Varchar for string value")
+    raise newException(ValueError, "Expected DuckType.Varchar or Bit for string value")
 
 proc newValue*(kind: DuckType, isValid: bool, val: seq[byte]): Value =
   result = Value(kind: kind, isValid: isValid)
@@ -207,7 +231,7 @@ proc newValue*(kind: DuckType, isValid: bool, val: seq[Value]): Value =
   if kind == DuckType.List:
     result.valueList = val
   else:
-    raise newException(ValueError, "Expected DuckType.List for seq[Vector] value")
+    raise newException(ValueError, "Expected DuckType.List for seq[Value] value")
 
 proc newValue*(kind: DuckType, isValid: bool, val: Table[string, Value]): Value =
   result = Value(kind: kind, isValid: isValid)
@@ -215,10 +239,20 @@ proc newValue*(kind: DuckType, isValid: bool, val: Table[string, Value]): Value 
     result.valueStruct = val
   elif kind == DuckType.Map:
     result.valueMap = val
+  elif kind == DuckType.Union:
+    result.valueUnion = val
   else:
     raise newException(
-      ValueError, "Expected DuckType.Struct or Map for Table[string, Value] value"
+      ValueError,
+      "Expected DuckType.Struct or Map or Union for Table[string, Value] value",
     )
+
+proc newValue*(kind: DuckType, isValid: bool, val: Uuid): Value =
+  result = Value(kind: kind, isValid: isValid)
+  if kind == DuckType.UUID:
+    result.valueUuid = val
+  else:
+    raise newException(ValueError, "Expected DuckType.Enum for uint value")
 
 # Default constructor for Invalid type
 proc newValue*(kind: DuckType, isValid: bool): Value =

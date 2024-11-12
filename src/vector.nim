@@ -1,8 +1,9 @@
 # {.experimental: "codeReordering".}
-import std/[sugar, tables, times, math, strformat, logging]
+import std/[sugar, tables, times, math, strformat]
 
 import nint128
 import decimal
+import uuid4
 
 import /[api, value, types]
 
@@ -13,7 +14,7 @@ const
 
 proc `$`*(vector: Vector): string =
   case vector.kind
-  of DuckType.Invalid:
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     result = $vector.valueInvalid
   of DuckType.Boolean:
     result = $vector.valueBoolean
@@ -67,10 +68,18 @@ proc `$`*(vector: Vector): string =
     result = $vector.valueStruct
   of DuckType.Map:
     result = $vector.valueMap
+  of DuckType.Uuid:
+    result = $vector.valueUuid
+  of DuckType.Union:
+    result = $vector.valueUnion
+  of DuckType.Bit:
+    result = $vector.valueBit
+  of DuckType.TimeTz:
+    result = $vector.valueTimeTz
 
 proc len*(vec: Vector): int =
   case vec.kind
-  of DuckType.Invalid:
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     result = 0
   of DuckType.Boolean:
     result = vec.valueBoolean.len
@@ -124,6 +133,14 @@ proc len*(vec: Vector): int =
     result = vec.valueStruct.len
   of DuckType.Map:
     result = vec.valueMap.len
+  of DuckType.UUID:
+    result = vec.valueUuid.len
+  of DuckType.Union:
+    result = vec.valueUnion.len
+  of DuckType.Bit:
+    result = vec.valueBit.len
+  of DuckType.TimeTz:
+    result = vec.valueTimeTz.len
 
 # has a bug when more chunks are present
 proc isValid*(vec: Vector, idx: int): bool {.inline.} =
@@ -200,15 +217,15 @@ template parseDecimalHugeInt(
     val: duckdb_hugeint
   ) -> DecimalType:
     let
-      value = add64Plus64ToI128(val.lower.uint64, (val.upper.int64 shl 64).uint64)
+      value = Int128(hi: val.upper.int64, lo: val.lower.uint64)
       fractional = cast[float](value) / pow(10.float, scale.float)
     newDecimal($fractional)
 
 proc vecToValue*(vec: Vector, idx: int): Value =
   let isValid = vec.isValid(idx)
   case vec.kind
-  of DuckType.Invalid:
-    result = newValue(vec.kind, isValid)
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, fmt"got invalid enum type: {vec.kind}")
   of DuckType.Boolean:
     result = newValue(vec.kind, isValid, vec.valueBoolean[idx])
   of DuckType.TinyInt:
@@ -245,12 +262,8 @@ proc vecToValue*(vec: Vector, idx: int): Value =
     result = newValue(vec.kind, isValid, vec.valueTime[idx])
   of DuckType.Interval:
     result = newValue(vec.kind, isValid, vec.valueInterval[idx])
-  # TODO: implement this
   of DuckType.HugeInt:
-    discard
-    # let lower = uint64(vec.valueHugeint[idx])
-    # let upper = uint64((vec.valueHugeint[idx] shr 64))
-    # result = newValue(vec.kind, isValid, lower, upper)
+    result = newValue(vec.kind, isValid, vec.valueHugeint[idx])
   of DuckType.Varchar:
     result = newValue(vec.kind, isValid, vec.valueVarchar[idx])
   of DuckType.Blob:
@@ -265,6 +278,14 @@ proc vecToValue*(vec: Vector, idx: int): Value =
     result = newValue(vec.kind, isValid, vec.valueStruct[idx])
   of DuckType.Map:
     result = newValue(vec.kind, isValid, vec.valueMap[idx])
+  of DuckType.UUID:
+    result = newValue(vec.kind, isValid, vec.valueUuid[idx])
+  of DuckType.Union:
+    result = newValue(vec.kind, isValid, vec.valueUnion[idx])
+  of DuckType.Bit:
+    result = newValue(vec.kind, isValid, vec.valueBit[idx])
+  of DuckType.TimeTz:
+    result = newValue(vec.kind, isValid, vec.valueTimeTz[idx])
 
 iterator items*(vec: Vector): Value =
   for idx in 0 ..< vec.len:
@@ -273,8 +294,8 @@ iterator items*(vec: Vector): Value =
 proc newVector*(kind: DuckType): Vector =
   result = Vector(kind: kind)
   case kind
-  of DuckType.Invalid:
-    raise newException(ValueError, "got invalid type")
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, fmt"got invalid enum type: {kind}")
   of DuckType.Boolean:
     result.valueBoolean = newSeq[bool]()
   of DuckType.TinyInt:
@@ -325,10 +346,14 @@ proc newVector*(kind: DuckType): Vector =
     result.valueList = newSeq[seq[Value]]()
   of DuckType.Struct, DuckType.Map:
     result.valueStruct = newSeq[Table[string, Value]]()
-  # of DuckType.UUID:           result.valueUUID        = newSeq[string]()
-  # of DuckType.Union:          result.valueUnion       = newSeq[Vector]()
-  # of DuckType.Bit:            result.valueBit         = newSeq[bool]()
-  # of DuckType.TimeTz:         result.valueTimeTz      = newSeq[tuple[time: Time, timezone: string]]()
+  of DuckType.UUID:
+    result.valueUuid = newSeq[Uuid]()
+  of DuckType.Union:
+    result.valueUnion = newSeq[Table[string, Value]]()
+  of DuckType.Bit:
+    result.valueBit = newSeq[string]()
+  of DuckType.TimeTz:
+    result.valueTimeTz = newSeq[ZonedTime]()
   # of DuckType.TimestampTz:    result.valueTimestampTz = newSeq[tuple[timestamp: Time, timezone: string]]()
   # of DuckType.UHugeInt:       result.valueUHugeint    = newSeq[tuple[high: uint64, low: uint64]]()
   # of DuckType.Array:          result.valueArray       = newSeq[Vector]()
@@ -357,8 +382,8 @@ proc newVector*(
 
   # TODO: abstract a lot of duplication around here
   case kind
-  of DuckType.Invalid:
-    raise newException(ValueError, "got invalid type")
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, fmt"got invalid enum type: {kind}")
   of DuckType.Boolean:
     parseHandle(handle, result, uint8, result.valueBoolean, bool)
   of DuckType.TinyInt:
@@ -412,7 +437,7 @@ proc newVector*(
     result.valueHugeInt = collectValid[duckdb_hugeint, Int128](
       handle, result, offset, size
     ) do(val: duckdb_hugeint) -> Int128:
-      add64Plus64ToI128(val.lower.uint64, (val.upper.int64 shl 64).uint64)
+      Int128(hi: val.upper.int64, lo: val.lower.uint64)
   of DuckType.VarChar:
     collectValidString[string](handle, result, offset, size, result.valueVarChar) do(
       rawStr: cstring
@@ -451,6 +476,7 @@ proc newVector*(
         seconds = val div 1_000_000_000
         microseconds = val mod 1_000_000_000 div 1000
       fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
+  # TODO: not sure if this needs to be the ord or the label
   of DuckType.Enum:
     let enum_tp = cast[DuckType](duckdb_enum_internal_type(logical_type.handle))
     case enum_tp
@@ -497,11 +523,12 @@ proc newVector*(
         ))
         child = newVector(
           vec = children,
-          offset = 0,
+          offset = offset,
           size = size,
           kind = newDuckType(child_type),
           logical_type = child_type,
         )
+
       vectorStruct[$child_name] = child
     result.valueStruct = collect:
       for i in offset ..< size:
@@ -512,8 +539,8 @@ proc newVector*(
   of DuckType.Map:
     let
       # don't know how to make use of key_type and value_type
-      key_type = newLogicalType(duckdb_map_type_key_type(logical_type.handle))
-      value_type = newLogicalType(duckdb_map_type_value_type(logical_type.handle))
+      # key_type = newLogicalType(duckdb_map_type_key_type(logical_type.handle))
+      # value_type = newLogicalType(duckdb_map_type_value_type(logical_type.handle))
       children = duckdb_list_vector_get_child(vec)
       lsize = duckdb_list_vector_get_size(vec)
       child_type = newLogicalType(duckdb_list_type_child_type(logical_type.handle))
@@ -531,6 +558,66 @@ proc newVector*(
         for e in elements.valueStruct:
           vectorMap[$e["key"]] = e["value"]
         vectorMap
+  # TODO: uuid is wrong
+  of DuckType.UUID:
+    result.valueUuid = collectValid[duckdb_hugeint, Uuid](handle, result, offset, size) do(
+      val: duckdb_hugeint
+    ) -> Uuid:
+      let huge_int = UInt128(lo: val.lower.uint64, hi: val.upper.uint64)
+      initUuid(huge_int.toHex)
+  # TODO: this is shit and fragile
+  # TODO: some bugs, sometimes tags are missing
+  of DuckType.Union:
+    let
+      children = newVector(
+        vec, offset, size, kind = DuckType.Struct, logical_type = logical_type
+      )
+      child_count = len(children)
+    echo "child_count: ", child_count
+
+    var tags = newSeq[string]()
+    for child_idx in 0 ..< child_count:
+      let child_name = cast[DuckString](duckdb_struct_type_child_name(
+        logical_type.handle, child_idx.idx_t
+      ))
+      echo child_name
+      if $child_name != "":
+        tags.add($child_name)
+
+    result.valueUnion = collect:
+      for e in children.valueStruct:
+        var row = initTable[string, Value]()
+        for tag in tags:
+          if $e[tag] != "":
+            row[tag] = e[tag]
+            row
+  of DuckType.Bit:
+    result.valueBit = newVector(
+      vec, offset, size, kind = DuckType.Varchar, logical_type = logical_type
+    ).valueVarChar
+  of DuckType.TimeTz:
+    result.valueTimeTz = collectValid[int64, ZonedTime](handle, result, offset, size) do(
+      val: int64
+    ) -> ZonedTime:
+      let
+        tmz = duckdb_from_time_tz(cast[duckdb_time_tz](val))
+        seconds = tmz.time.hour * 3600 + tmz.time.min.int * 60 + tmz.time.sec
+        nanoseconds = tmz.time.micros * 1000
+        tm = initTime(seconds, nanoseconds)
+
+      proc zonedTimeFromAdjTime(adjTime: Time): ZonedTime =
+        result.isDst = false
+        result.utcOffset = tmz.offset
+        result.time = adjTime + initDuration(seconds = offset)
+
+      proc zonedTimeFromTime(time: Time): ZonedTime =
+        result.isDst = false
+        result.utcOffset = tmz.offset
+        result.time = time
+
+      let tz = newTimezone("Something", zonedTimeFromTime, zonedTimeFromAdjTime)
+      let timeValue = zonedTimeFromTime(tz, tm)
+      timeValue
 
 proc `[]`*(v: Vector, idx: int): Value =
   result = vecToValue(v, idx)
@@ -545,8 +632,8 @@ func `&=`*(left: var Vector, right: Vector): void =
   # TODO: this is not how mask works
   left.mask &= right.mask
   case left.kind
-  of DuckType.Invalid:
-    raise newException(ValueError, "got invalid type")
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, fmt"got invalid enum type: {left.kind}")
   of DuckType.Boolean:
     left.valueBoolean &= right.valueBoolean
   of DuckType.TinyInt:
@@ -599,3 +686,11 @@ func `&=`*(left: var Vector, right: Vector): void =
     left.valueStruct &= right.valueStruct
   of DuckType.Map:
     left.valueMap &= right.valueMap
+  of DuckType.UUID:
+    left.valueUuid &= right.valueUuid
+  of DuckType.Union:
+    left.valueUnion &= right.valueUnion
+  of DuckType.Bit:
+    left.valueBit &= right.valueBit
+  of DuckType.TimeTz:
+    left.valueTimeTz &= right.valueTimeTz

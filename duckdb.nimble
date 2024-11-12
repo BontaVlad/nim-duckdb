@@ -16,6 +16,8 @@ requires "futhark"
 requires "nint128"
 requires "decimal >= 0.0.2"
 requires "pretty >= 0.1.0"
+requires "terminaltables >= 0.1.1"
+requires "uuid4 >= 0.9.3"
 
 # Function to execute shell command and return output as a sequence of strings
 proc execAndGetLines(cmd: string): seq[string] =
@@ -66,5 +68,3 @@ task debug, "Compile and record program execution with rr":
 
     # Step 3: Replay using rr
     exec "rr -M replay -e"
-
-requires "terminaltables >= 0.1.1"

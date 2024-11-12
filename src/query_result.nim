@@ -8,17 +8,24 @@ type
   DataChunk* = distinct ptr duckdb_data_chunk
   PendingQueryResult* = object of duckdb_pending_result
 
-  Column = object
-    idx: idxt
-    name: string
-    kind: DuckType
-    logical_type: LogicalType
+  Column* = object
+    idx*: idxt
+    name*: string
+    kind*: DuckType
+    logical_type*: LogicalType
 
-converter toBase*(d: ptr DataChunk): ptr duckdbdatachunk =
+converter toCPtr*(d: ptr DataChunk): ptr duckdbdatachunk =
   cast[ptr duckdbdatachunk](d)
 
-converter toBase*(d: DataChunk): duckdbdatachunk =
+proc `=destroy`(datachunk: DataChunk) =
+  if not isNil(datachunk.addr):
+    duckdbdestroydatachunk(datachunk.addr)
+
+converter toC*(d: DataChunk): duckdbdatachunk =
   cast[duckdbdatachunk](d)
+
+converter toNim*(d: duckdbdatachunk): DataChunk =
+  cast[DataChunk](d)
 
 converter toBool*(d: DataChunk): bool =
   not isNil(d) or duckdbdatachunkgetsize(d).int > 0
@@ -32,10 +39,6 @@ converter toBase*(p: PendingQueryResult): duckdb_pending_result =
 proc `=destroy`(qresult: QueryResult) =
   if not isNil(qresult.addr):
     duckdbDestroyResult(qresult.addr)
-
-proc `=destroy`(datachunk: DataChunk) =
-  if not isNil(datachunk.addr):
-    duckdbdestroydatachunk(datachunk.addr)
 
 proc isStreaming(qresult: QueryResult): bool =
   result = duckdb_result_is_streaming(qresult)
@@ -53,7 +56,7 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result.logical_type = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
   result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
 
-# TODO: find out why if I make this an iterator it breaks with a double free
+# TODO: find out why if I make this an iterator it breaks with a double free, maybe a copy=?
 proc columns(qresult: QueryResult): seq[Column] =
   result = newSeq[Column]()
   for i in 0 ..< duckdb_column_count(qresult.addr):

@@ -1,11 +1,14 @@
-import std/[tables, times]
+import std/[tables, times, strformat]
+
 import nint128
 import decimal
+import uuid4
+
 import /[api]
 
 type
   DuckString* = distinct cstring
-  DuckValue* = ref object of RootObj
+  RootValue* = ref object of RootObj
   DuckType* {.pure.} = enum
     Invalid = enumDuckdbType.DUCKDB_TYPE_INVALID.int
     Boolean = enumDuckdbType.DUCKDB_TYPE_BOOLEAN.int
@@ -34,11 +37,19 @@ type
     List = enumDuckdbType.DUCKDB_TYPE_LIST.int
     Struct = enumDuckdbType.DUCKDB_TYPE_STRUCT.int
     Map = enumDuckdbType.DUCKDB_TYPE_MAP.int
+    UUID = enumDuckdbType.DUCKDB_TYPE_UUID.int
+    Union = enumDuckdbType.DUCKDB_TYPE_UNION.int
+    Bit = enumDuckdbType.DUCKDB_TYPE_BIT.int
+    TimeTz = enumDuckdbType.DUCKDB_TYPE_TIME_TZ.int
+    Any = enumDuckdbType.DUCKDB_TYPE_ANY.int
+    VarInt = enumDuckdbType.DUCKDB_TYPE_VARINT.int
+    SqlNull = enumDuckdbType.DUCKDB_TYPE_SQLNULL.int
 
-  Value* = ref object of DuckValue
+  Value* = ref object of RootValue
     isValid*: bool
     case kind*: DuckType
-    of DuckType.Invalid: valueInvalid*: uint8
+    of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+      valueInvalid*: uint8
     of DuckType.Boolean: valueBoolean*: bool
     of DuckType.TinyInt: valueTinyint*: int8
     of DuckType.SmallInt: valueSmallint*: int16
@@ -65,11 +76,16 @@ type
     of DuckType.List: valueList*: seq[Value]
     of DuckType.Struct: valueStruct*: Table[string, Value]
     of DuckType.Map: valueMap*: Table[string, Value]
+    of DuckType.UUID: valueUUID*: Uuid
+    of DuckType.Union: valueUnion*: Table[string, Value]
+    of DuckType.Bit: valueBit*: string
+    of DuckType.TimeTz: valueTimeTz*: ZonedTime
 
-  Vector* = ref object of DuckValue
+  Vector* = ref object of RootValue
     mask*: seq[uint64] = newSeq[uint64]()
     case kind*: DuckType
-    of DuckType.Invalid: valueInvalid*: uint8
+    of DuckType.Invalid, DuckType.ANY, DuckType.VARINT, DuckType.SQLNULL:
+      valueInvalid*: uint8
     of DuckType.Boolean: valueBoolean*: seq[bool]
     of DuckType.TinyInt: valueTinyint*: seq[int8]
     of DuckType.SmallInt: valueSmallint*: seq[int16]
@@ -96,10 +112,10 @@ type
     of DuckType.List: valueList*: seq[seq[Value]]
     of DuckType.Struct: valueStruct*: seq[Table[string, Value]]
     of DuckType.Map: valueMap*: seq[Table[string, Value]]
-    # of DuckType.UUID: valueUUID*: seq[string]
-    # of DuckType.Union: valueUnion*: seq[Vector]
-    # of DuckType.Bit: valueBit*: seq[bool]
-    # of DuckType.TimeTz: valueTimeTz*: seq[tuple[time: Time, timezone: string]]
+    of DuckType.UUID: valueUUID*: seq[Uuid]
+    of DuckType.Union: valueUnion*: seq[Table[string, Value]]
+    of DuckType.Bit: valueBit*: seq[string]
+    of DuckType.TimeTz: valueTimeTz*: seq[ZonedTime]
     # of DuckType.TimestampTz: valueTimestampTz*: seq[tuple[timestamp: Time, timezone: string]]
     # of DuckType.UHugeInt: valueUHugeint*: seq[tuple[high: uint64, low: uint64]]
     # of DuckType.Array: valueArray*: seq[Vector]
@@ -110,9 +126,16 @@ type
   LogicalType* = object
     handle*: duckdb_logical_type
 
+  DuckValue* = object
+    handle*: duckdb_value
+
 proc `=destroy`*(ltp: LogicalType) =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
+
+proc `=destroy`*(dv: DuckValue) =
+  if not isNil(dv.addr) and not isNil(dv.handle.addr):
+    duckdb_destroy_value(dv.handle.addr)
 
 proc `=destroy`*(dstr: DuckString) =
   if not dstr.cstring.isNil:
@@ -137,5 +160,13 @@ proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   result = LogicalType(handle: i)
 
-proc `$`*(ltp: LogicalType): string =
-  result = $newDuckType(ltp)
+proc newLogicalType*(pt: DuckType): LogicalType =
+  # Returns an invalid logical type, if type is: `DUCKDB_TYPE_INVALID`, `DUCKDB_TYPE_DECIMAL`, `DUCKDB_TYPE_ENUM`,
+  # `DUCKDB_TYPE_LIST`, `DUCKDB_TYPE_STRUCT`, `DUCKDB_TYPE_MAP`, `DUCKDB_TYPE_ARRAY`, or `DUCKDB_TYPE_UNION`.
+  # TODO: why do I need to cast it to duckdb_type, maybe from distinct
+  let handle = duckdb_create_logical_type(cast[duckdb_type](pt))
+  result = LogicalType(handle: handle)
+
+# this is not ok, read this:
+# proc `$`*(ltp: LogicalType): string =
+#   result = $newDuckType(ltp)
