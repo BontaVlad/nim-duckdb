@@ -1,5 +1,5 @@
 import std/[strformat, logging, enumerate]
-import /[api, database, query_result, exceptions, logger]
+import /[api, database, query_result, exceptions]
 
 type
   Query* = distinct string

@@ -11,18 +11,20 @@ converter toBase*(c: ptr Config): ptr duckdbConfig =
 converter toBase*(c: Config): duckdbConfig =
   cast[duckdbConfig](c)
 
-proc `=destroy`(conf: Config) =
+proc `=destroy`*(conf: Config) =
+  echo "destroy called on config"
   if not isNil(conf.addr):
     duckdbDestroyConfig(conf.addr)
 
 proc setConfig*(config: Config, name: string, option: string) =
   check(
-    duckdb_set_config(config, name.cstring, option.cstring),
+    duckdbSetConfig(config, name.cstring, option.cstring),
     fmt"Unrecognized configuration option {name}",
+    `=destroy`(config),
   )
 
 proc newConfig*(): Config =
-  check(duckdb_create_config(result.addr), "Failed to create config")
+  check(duckdbCreateConfig(result.addr), "Failed to create config")
 
 proc newConfig*(values: ConfigValues): Config =
   result = newConfig()

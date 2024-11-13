@@ -1,5 +1,6 @@
-import std/[enumerate, times, tables, strformat]
-import /[database, query, query_result, config, vector, transaction]
+import std/[enumerate, times, tables, strformat, sequtils]
+import
+  /[api, database, query, query_result, config, vector, transaction, table_scan, types]
 
 import nint128
 
@@ -8,82 +9,72 @@ when compileOption("profiler"):
 
 when isMainModule:
   let con = connect()
-  # echo con.execute("CREATE TABLE integers AS SELECT * FROM range(70000) t(i);")
-  # con.execute("CREATE TABLE integers(i INTEGER, j INTEGER);")
-  # con.execute("INSERT INTO integers VALUES (6, 1), (5, 2), (7, 9), (7, 9);")
-  # echo con.execute("SELECT * FROM integers LIMIT 10;")
-  # echo con.execute("SELECT [union_value(num := 2), union_value(str := 'ABC')::UNION(str VARCHAR, num INTEGER)];")
-  # echo con.execute("SELECT MAP {'key1': 10, 'key2': 20, 'key3': 30};")
-  # echo con.execute("SELECT CASE WHEN i%5=0 THEN NULL ELSE {'col1': i, 'col2': CASE WHEN i%2=0 THEN NULL ELSE 100 + i * 42 END} END FROM range(10) t(i);")
-  transaction(con):
-    echo con.execute("SELECT '10111101'::BITSTRING;")
+  type MyBindStruct = object
+    count*: int
 
-  # echo con.execute("SELECT TIMETZ '1992-09-20 11:30:00.123456';")
-  # echo con.execute("SELECT uuid();")
-  # echo con.execute(
-  #   "select '00000000-0000-0000-0000-000000000012'::uuid from generate_series(1, 10);"
-  # )
-  # echo con.execute("SELECT '00000000-0000-0000-0000-000000000001'::uuid;")
-  # echo con.execute("SELECT 'd46a5a42-2915-44e9-9fb0-c38509bd9908'::uuid;")
-  # '546a5a42-2915-44e9-9fb0-c38509bd9908'
-  # "0899bd09-85c3-b09f-e944-1529425a6a54"
-  #                         # 546a5a42-2915-44e9-9fb0-c38509bd9908
-  # con.execute("CREATE TABLE tbl1 (u UNION(num INTEGER, str VARCHAR));")
-  # con.execute("INSERT INTO tbl1 values (1), ('two'), (union_value(str := 'three'));")
-  # echo con.execute("SELECT u FROM tbl1;")
-  # echo con.execute("SELECT u.str FROM tbl1;")
-  # echo con.execute("SELECT union_extract(u, 'str') AS str FROM tbl1;")
-  # echo con.execute("SELECT union_tag(u) AS t FROM tbl1;")
-# | {num=1}     │
-# │ {str=two}   │
-# │ {str=three} |
+  proc newMyBindStruct(count: int): MyBindStruct =
+    echo "called bind"
+    result = MyBindStruct(count: count)
 
-# echo con.execute("SELECT 170141183460469231731687303715884105727::HUGEINT;")
-# {key1: 10, key2: 20, key3: 30}
+  proc destroyBindStruct(p: pointer) {.cdecl.} =
+    var myStruct = cast[MyBindStruct](p)
+    `=destroy`(myStruct)
 
-# echo con.execute("SELECT CASE WHEN i % 5 = 0 THEN NULL WHEN i % 2 = 0 THEN [i, i + 1] ELSE [i * 42, NULL, i * 84] END FROM range(10) t(i);")
-# echo task
-# let outcome = task.fetchAll()
-# echo outcome[0].valueList[0].valueVarchar[0]
+  proc myBindFunction(info: BindInfo) =
+    info.add_result_column("my_column", DuckType.INTEGER)
+    # let parameter = info.parameters.toSeq
+    # let data = newMyBindStruct(parameter[0].valueInteger)
+    # duckdb_bind_set_bind_data(info, cast[pointer](data), destroyBindStruct)
 
-# echo con.execute(
-#   "SELECT CASE WHEN i%5=0 THEN NULL ELSE {'col1': i, 'col2': CASE WHEN i%2=0 THEN NULL ELSE 100 + i * 42 END} END FROM range(10) t(i);"
-# )
+  type MyInitStruct = object
+    pos*: int
 
-# echo con.execute(
-#   "SELECT * FROM integers;"
-# )
-# let outcome = task.fetchAllNamed()
-# echo outcome
+  proc destroyInitStruct(p: pointer) {.cdecl.} =
+    var myStruct = cast[MyInitStruct](p)
+    `=destroy`(myStruct)
 
-# let con = connect()
-# con.execute(
-#   """
-#     CREATE TABLE prepared_table (
-#       bool_val BOOLEAN,
-#       int16_val SMALLINT,
-#       int32_val INTEGER,
-#       int64_val BIGINT,
-#       float32_val FLOAT,
-#       float64_val DOUBLE,
-#       string_val VARCHAR,
-#     );
-#   """
-# )
+  proc myInitFunction(info: InitInfo) =
+    var foo = MyInitStruct(pos: 0)
+    duckdb_init_set_init_data(info, cast[pointer](foo), destroyInitStruct)
 
-# let prepared = newStatement(
-#   con, "INSERT INTO prepared_table VALUES (?, ?, ?, ?, ?, ?, ?);"
-# )
-# con.execute(
-#   prepared,
-#   (
-#     true,
-#     int16(32767),
-#     int32(-2147483648),
-#     int64(9223372036854775807),
-#     float32(3.14'f32),
-#     float64(3.14159265359'f64),
-#     "hello",
-#   ),
-# )
-# echo con.execute("SELECT * FROM prepared_table")
+  var calledCount = 0
+  proc myMainFunctionPrint(info: FunctionInfo, output: DataChunk) =
+    echo " "
+    echo "-------------------------------"
+    var bindInfo = cast[MyBindStruct](duckdb_function_get_bind_data(info))
+    var initInfo = cast[MyInitStruct](duckdb_function_get_init_data(info))
+
+    bindInfo.count = 3
+    let raw = duckdb_vector_get_data(duckdb_data_chunk_get_vector(output, 0.idx_t))
+    var resultArray = cast[ptr UncheckedArray[int32]](raw)
+    echo "calledCount: ", calledCount
+    calledCount += 1
+    var count = 3
+    while initInfo.pos < bindInfo.count and count < duckdb_vector_size().int:
+      resultArray[count] = if initInfo.pos mod 2 == 0: 42 else: 84
+      echo "pos: ", initInfo.pos, "count: ", count, "vector size ", duckdb_vector_size()
+      count += 1
+      initInfo.pos += 1
+    # echo "returning chunk"
+    duckdb_data_chunk_set_size(output, count.idx_t)
+    let chunk_size = duckdb_data_chunk_get_size(output).int
+    echo "chunk_size: ", chunk_size
+    echo "-------------------------------"
+    echo " "
+
+  let tf = newTableFunction(
+    name = "my_function",
+    parameters = @[newLogicalType(DuckType.Integer)],
+    bindFunc = myBindFunction,
+    initFunc = myInitFunction,
+    initLocalFunc = proc(info: InitInfo) =
+      discard,
+    mainFunc = myMainFunctionPrint,
+    extraData = nil,
+    projectionPushdown = true,
+  )
+  con.register(tf)
+  # echo con.execute("SELECT * FROM range(4);")
+  echo con.execute("SELECT my_column FROM my_function(3) LIMIT 3;")
+  # let outcome = con.execute("SELECT my_column FROM my_function(3);").fetchall()
+  # echo outcome

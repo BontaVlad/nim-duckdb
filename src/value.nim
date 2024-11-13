@@ -1,9 +1,9 @@
-import std/[tables, times, math]
+import std/[tables, times, math, strutils]
 import nint128
 import decimal
 import uuid4
 
-import /[types]
+import /[types, api]
 
 proc `$`*(v: Value): string =
   if not v.isValid:
@@ -261,3 +261,89 @@ proc newValue*(kind: DuckType, isValid: bool): Value =
     result.valueInvalid = 0
   else:
     raise newException(ValueError, "Expected DuckType.Invalid for default value")
+
+proc newValue*(val: DuckValue): Value =
+  let kind = newDuckType(duckdb_get_value_type(val.handle))
+
+  # TODO: get the actual isValid value
+  result = Value(kind: kind, isValid: true)
+  case result.kind
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, "got invalid type")
+  of DuckType.Boolean:
+    result.valueBoolean = duckdb_get_bool(val.handle).bool
+  of DuckType.TinyInt:
+    result.valueTinyint = duckdb_get_int8(val.handle).int8
+  of DuckType.SmallInt:
+    result.valueSmallint = duckdb_get_int16(val.handle).int16
+  of DuckType.Integer:
+    result.valueInteger = duckdb_get_int32(val.handle).int32
+  of DuckType.BigInt:
+    result.valueBigint = duckdb_get_int64(val.handle)
+  of DuckType.UTinyInt:
+    result.valueUTinyint = duckdb_get_uint8(val.handle).uint8
+  of DuckType.USmallInt:
+    result.valueUSmallint = duckdb_get_uint16(val.handle).uint16
+  of DuckType.UInteger:
+    result.valueUInteger = duckdb_get_uint32(val.handle).uint32
+  of DuckType.UBigInt:
+    result.valueUBigint = duckdb_get_uint64(val.handle).uint64
+  of DuckType.Float:
+    result.valueFloat = duckdb_get_float(val.handle).float32
+  of DuckType.Double:
+    result.valueDouble = duckdb_get_double(val.handle).float64
+  of DuckType.Timestamp:
+    discard
+    # result.valueTimestamp = parse(v, "yyyy-MM-dd HH:mm:ss")
+  of DuckType.TimestampS:
+    discard
+    # result.valueTimestampS = fromUnix(v.parseInt)
+  of DuckType.TimestampMs:
+    discard
+    # result.valueTimestampMs = fromUnixMilli(v.parseInt)
+  of DuckType.TimestampNs:
+    discard
+    # result.valueTimestampNs = fromUnixNano(v.parseInt)
+  of DuckType.Date:
+    discard
+    # result.valueDate = parse(v, "yyyy-MM-dd").toDate
+  of DuckType.Time:
+    discard
+    # result.valueTime = parse(v, "HH:mm:ss").toTime
+  of DuckType.Interval:
+    discard
+    # result.valueInterval = parseDuration(v)
+  of DuckType.HugeInt:
+    discard
+    # result.valueHugeint = parseHugeInt(v)
+  of DuckType.Varchar:
+    result.valueVarchar = $duckdb_get_varchar(val.handle)
+  of DuckType.Blob:
+    result.valueBlob = cast[seq[byte]](val.handle)
+  of DuckType.Decimal:
+    discard
+    # result.valueDecimal = parseDecimal(v)
+  of DuckType.Enum:
+    discard
+    # result.valueEnum = parseEnum[EnumType](v)
+  of DuckType.List:
+    discard
+    # result.valueList = parseJson(v).to(seq[Value])
+  of DuckType.Struct:
+    discard
+    # result.valueStruct = parseJson(v).to(StructType)
+  of DuckType.Map:
+    discard
+    # result.valueMap = parseJson(v).to(Table[string, Value])
+  of DuckType.UUID:
+    discard
+    # result.valueUuid = parseUUID(v)
+  of DuckType.Union:
+    discard
+    # result.valueUnion = parseJson(v).to(UnionType)
+  of DuckType.Bit:
+    discard
+    # result.valueBit = v.parseBinaryInt.uint8
+  of DuckType.TimeTz:
+    discard
+    # result.valueTimeTz = parseTimeTz(v)

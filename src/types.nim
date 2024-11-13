@@ -124,16 +124,16 @@ type
     # of DuckType.SqlNull: valueSqlNull*: seq[bool] # SqlNull could be a boolean
 
   LogicalType* = object
-    handle*: duckdb_logical_type
+    handle* {.cursor.}: duckdb_logical_type
 
   DuckValue* = object
-    handle*: duckdb_value
+    handle* {.cursor.}: duckdb_value
 
-proc `=destroy`*(ltp: LogicalType) =
+proc `=destroy`*(ltp: LogicalType) {.nodestroy.} =
   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
     duckdb_destroy_logical_type(ltp.handle.addr)
 
-proc `=destroy`*(dv: DuckValue) =
+proc `=destroy`*(dv: DuckValue) {.nodestroy.} =
   if not isNil(dv.addr) and not isNil(dv.handle.addr):
     duckdb_destroy_value(dv.handle.addr)
 
@@ -143,6 +143,7 @@ proc `=destroy`*(dstr: DuckString) =
 
 proc `$`*(dstr: DuckString): string =
   if dstr.cstring.isNil:
+    # TODO: maybe "" instead of Nill?
     return "Nill"
   result = $dstr.cstring
 
@@ -150,12 +151,8 @@ proc `$`*(dstr: DuckString): string =
 # proc `$`*(ltp: LogicalType): string =
 #   result = $DuckString(duckdb_logical_type_get_alias(ltp.handle))
 
-proc newDuckType*(i: LogicalType): DuckType =
-  let id = duckdb_get_type_id(i.handle)
-  result = DuckType(ord(id))
-
-proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
-  result = DuckType(ord(i))
+proc newDuckValue*(handle: duckdb_value): DuckValue =
+  result = DuckValue(handle: handle)
 
 proc newLogicalType*(i: duckdb_logical_type): LogicalType =
   result = LogicalType(handle: i)
@@ -167,6 +164,16 @@ proc newLogicalType*(pt: DuckType): LogicalType =
   let handle = duckdb_create_logical_type(cast[duckdb_type](pt))
   result = LogicalType(handle: handle)
 
+proc newDuckType*(i: LogicalType): DuckType =
+  let id = duckdb_get_type_id(i.handle)
+  result = DuckType(ord(id))
+
+proc newDuckType*(i: duckdb_logical_type): DuckType =
+  result = newDuckType(LogicalType(handle: i))
+
+proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
+  result = DuckType(ord(i))
+
 # this is not ok, read this:
-# proc `$`*(ltp: LogicalType): string =
-#   result = $newDuckType(ltp)
+proc `$`*(ltp: LogicalType): string =
+  result = $newDuckType(ltp)

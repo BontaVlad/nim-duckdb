@@ -363,11 +363,7 @@ proc newVector*(kind: DuckType): Vector =
 
 # TODO: make this prettier with macros
 proc newVector*(
-    vec: duckdb_vector,
-    offset: int,
-    size: int,
-    kind: DuckType,
-    logical_type: LogicalType,
+    vec: duckdb_vector, offset: int, size: int, kind: DuckType, logicalType: LogicalType
 ): Vector =
   result = Vector(kind: kind)
 
@@ -452,8 +448,8 @@ proc newVector*(
       byteArray
   of DuckType.Decimal:
     let
-      scale = duckdb_decimal_scale(logical_type.handle).int
-      width = duckdb_decimal_width(logical_type.handle).int
+      scale = duckdb_decimal_scale(logicalType.handle).int
+      width = duckdb_decimal_width(logicalType.handle).int
     if width <= 18:
       parseDecimalBigInt(handle, result, scale, result.valueDecimal)
     else:
@@ -478,7 +474,7 @@ proc newVector*(
       fromUnix(seconds).inZone(utc()) + initDuration(microseconds = microseconds)
   # TODO: not sure if this needs to be the ord or the label
   of DuckType.Enum:
-    let enum_tp = cast[DuckType](duckdb_enum_internal_type(logical_type.handle))
+    let enum_tp = cast[DuckType](duckdb_enum_internal_type(logicalType.handle))
     case enum_tp
     of UTinyInt:
       parseHandle(handle, result, uint8, result.valueEnum, uint)
@@ -497,36 +493,36 @@ proc newVector*(
       if isValid(result, i):
         let
           list_data = raw[i]
-          child_type = newLogicalType(duckdb_list_type_child_type(logical_type.handle))
+          child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
           child = newVector(
             vec = children,
             offset = list_data.offset.int,
             size = (list_data.offset + list_data.length).int,
             kind = newDuckType(child_type),
-            logical_type = child_type,
+            logicalType = child_type,
           )
         var child_array = newSeq[Value]()
         for c in child:
           child_array.add(cast[Value](c))
         result.valueList.add(child_array)
   of DuckType.Struct:
-    let child_count = duckdb_struct_type_child_count(logical_type.handle).int
+    let child_count = duckdb_struct_type_child_count(logicalType.handle).int
     var vectorStruct = initTable[string, Vector]()
     for child_idx in 0 ..< child_count:
       let
         children = duckdb_struct_vector_get_child(vec, child_idx.idx_t)
         child_type = newLogicalType(
-          duckdb_struct_type_child_type(logical_type.handle, child_idx.idx_t)
+          duckdb_struct_type_child_type(logicalType.handle, child_idx.idx_t)
         )
         child_name = cast[DuckString](duckdb_struct_type_child_name(
-          logical_type.handle, child_idx.idx_t
+          logicalType.handle, child_idx.idx_t
         ))
         child = newVector(
           vec = children,
           offset = offset,
           size = size,
           kind = newDuckType(child_type),
-          logical_type = child_type,
+          logicalType = child_type,
         )
 
       vectorStruct[$child_name] = child
@@ -539,11 +535,11 @@ proc newVector*(
   of DuckType.Map:
     let
       # don't know how to make use of key_type and value_type
-      # key_type = newLogicalType(duckdb_map_type_key_type(logical_type.handle))
-      # value_type = newLogicalType(duckdb_map_type_value_type(logical_type.handle))
+      # key_type = newLogicalType(duckdb_map_type_key_type(logicalType.handle))
+      # value_type = newLogicalType(duckdb_map_type_value_type(logicalType.handle))
       children = duckdb_list_vector_get_child(vec)
       lsize = duckdb_list_vector_get_size(vec)
-      child_type = newLogicalType(duckdb_list_type_child_type(logical_type.handle))
+      child_type = newLogicalType(duckdb_list_type_child_type(logicalType.handle))
 
     result.valueMap = collect:
       for i in 0 ..< size:
@@ -553,7 +549,7 @@ proc newVector*(
           offset = 0,
           size = lsize.int,
           kind = newDuckType(child_type),
-          logical_type = child_type,
+          logicalType = child_type,
         )
         for e in elements.valueStruct:
           vectorMap[$e["key"]] = e["value"]
@@ -569,18 +565,15 @@ proc newVector*(
   # TODO: some bugs, sometimes tags are missing
   of DuckType.Union:
     let
-      children = newVector(
-        vec, offset, size, kind = DuckType.Struct, logical_type = logical_type
-      )
+      children =
+        newVector(vec, offset, size, kind = DuckType.Struct, logicalType = logicalType)
       child_count = len(children)
-    echo "child_count: ", child_count
 
     var tags = newSeq[string]()
     for child_idx in 0 ..< child_count:
       let child_name = cast[DuckString](duckdb_struct_type_child_name(
-        logical_type.handle, child_idx.idx_t
+        logicalType.handle, child_idx.idx_t
       ))
-      echo child_name
       if $child_name != "":
         tags.add($child_name)
 
@@ -593,7 +586,7 @@ proc newVector*(
             row
   of DuckType.Bit:
     result.valueBit = newVector(
-      vec, offset, size, kind = DuckType.Varchar, logical_type = logical_type
+      vec, offset, size, kind = DuckType.Varchar, logicalType = logicalType
     ).valueVarChar
   of DuckType.TimeTz:
     result.valueTimeTz = collectValid[int64, ZonedTime](handle, result, offset, size) do(

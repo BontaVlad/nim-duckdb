@@ -4,18 +4,18 @@ import terminaltables
 import /[api, types, vector, value]
 
 type
-  QueryResult* = object of duckdb_result
-  DataChunk* = distinct ptr duckdb_data_chunk
-  PendingQueryResult* = object of duckdb_pending_result
+  QueryResult* = object of duckdbResult
+  DataChunk* = distinct ptr duckdbDataChunk
+  PendingQueryResult* = object of duckdbPendingResult
 
   Column* = object
     idx*: idxt
     name*: string
     kind*: DuckType
-    logical_type*: LogicalType
+    logicalType*: LogicalType
 
-converter toCPtr*(d: ptr DataChunk): ptr duckdbdatachunk =
-  cast[ptr duckdbdatachunk](d)
+converter toCPtr*(d: ptr DataChunk): ptr duckdbDataChunk =
+  cast[ptr duckDbDataChunk](d)
 
 proc `=destroy`(datachunk: DataChunk) =
   if not isNil(datachunk.addr):
@@ -53,7 +53,7 @@ proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result = Column()
   result.idx = idx
   result.name = $duckdb_column_name(qresult.addr, idx)
-  result.logical_type = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
+  result.logicalType = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
   result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
 
 # TODO: find out why if I make this an iterator it breaks with a double free, maybe a copy=?
@@ -76,7 +76,7 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
     let
       vec: duckdb_vector = duckdb_data_chunk_get_vector(chunk, col.idx)
       chunk_size = duckdb_data_chunk_get_size(chunk).int
-    result[col.idx] = newVector(vec, 0, chunk_size, col.kind, col.logical_type)
+    result[col.idx] = newVector(vec, 0, chunk_size, col.kind, col.logicalType)
   # TODO: not sure why I need to return here
   return result
 
