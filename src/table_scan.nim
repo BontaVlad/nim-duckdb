@@ -1,167 +1,157 @@
-import /[api, database, query_result, types, exceptions, value]
+import std/[sequtils]
+import /[api, database, query, table_functions, types]
 
-type
-  Table = object
-  BindInfo* = object of duckdb_bind_info
-  InitInfo* = object of duckdb_init_info
-  FunctionInfo* = object of duckdb_function_info
-  TableBindInfo* = ref object
-    table: Table
-    inputColumns: seq[Column]
-    scanTypes: seq[DuckType]
-    resultTypes: seq[DuckType]
-    scanFunctions: seq[proc(x: pointer): pointer] # Adjust signature as needed
 
-  TableFunction* = object
-    name: string
-    handle {.cursor.}: duckdb_table_function
-    bindFunc: proc(info: BindInfo)
-    initFunc: proc(info: InitInfo)
-    initLocalFunc: proc(info: InitInfo)
-    mainFunc: proc(info: FunctionInfo, chunk: DataChunk)
-    extraData: RootRef
+# type
+#   TableBindInfo* = object
+#     inputColumns: seq[Column]
+#     scanTypes: seq[DuckType]
+#     resultTypes: seq[DuckType]
+#     scanFunctions: seq[proc(x: pointer): pointer] # Adjust signature as needed
 
-proc `=destroy`*(tf: TableFunction) {.nodestroy.} =
-  echo "called destroy on table function"
-  if not isNil(tf.addr) and not isNil(tf.handle.addr):
-    duckdb_destroy_table_function(tf.handle.addr)
 
-type TableFunctionRef* = ref TableFunction
-  # globalObjects: HashSet[RootRef]
-  # lock: Lock
 
-# TODO: this is never called
-proc destroyTableFunction(p: pointer) {.cdecl.} =
-  let tf = cast[TableFunction](p)
-  `=destroy`(tf)
+# function tbl_global_init_function(info::DuckDB.InitInfo)
+#     bind_info = DuckDB.get_bind_info(info, TableBindInfo)
+#     # figure out the maximum number of threads to launch from the tbl size
+#     row_count::Int64 = Tables.rowcount(bind_info.tbl)
+#     max_threads::Int64 = ceil(row_count / DuckDB.ROW_GROUP_SIZE)
+#     DuckDB.set_max_threads(info, max_threads)
+#     return TableGlobalInfo()
+# end
 
-proc `$`*(tf: TableFunctionRef): string =
-  result = tf.name
+# function tbl_local_init_function(info::DuckDB.InitInfo)
+#     columns = DuckDB.get_projected_columns(info)
+#     return TableLocalInfo(columns)
+# end
 
-converter toC*(bi: BindInfo): duckdb_bind_info =
-  cast[duckdb_bind_info](bi)
+# function tbl_scan_function(info::DuckDB.FunctionInfo, output::DuckDB.DataChunk)
+#     bind_info = DuckDB.get_bind_info(info, TableBindInfo)
+#     global_info = DuckDB.get_init_info(info, TableGlobalInfo)
+#     local_info = DuckDB.get_local_info(info, TableLocalInfo)
 
-converter toNim*(bi: duckdb_bind_info): BindInfo =
-  cast[BindInfo](bi)
+#     if local_info.current_pos >= local_info.end_pos
+#         # ran out of data to scan in the local info: fetch new rows from the global state (if any)
+#         # we can in increments of 100 vectors
+#         lock(global_info.global_lock) do
+#             row_count::Int64 = Tables.rowcount(bind_info.tbl)
+#             local_info.current_pos = global_info.pos
+#             total_scan_amount::Int64 = DuckDB.ROW_GROUP_SIZE
+#             if local_info.current_pos + total_scan_amount >= row_count
+#                 total_scan_amount = row_count - local_info.current_pos
+#             end
+#             local_info.end_pos = local_info.current_pos + total_scan_amount
+#             return global_info.pos += total_scan_amount
+#         end
+#     end
+#     scan_count::Int64 = DuckDB.VECTOR_SIZE
+#     current_row::Int64 = local_info.current_pos
+#     if current_row + scan_count >= local_info.end_pos
+#         scan_count = local_info.end_pos - current_row
+#     end
+#     local_info.current_pos += scan_count
 
-converter toCptr*(bi: ptr BindInfo): ptr duckdb_bind_info =
-  cast[ptr duckdb_bind_info](bi)
-
-converter toC*(ii: InitInfo): duckdb_init_info =
-  cast[duckdb_init_info](ii)
-
-converter toNim*(ii: duckdb_init_info): InitInfo =
-  cast[InitInfo](ii)
-
-converter toCptr*(ii: ptr InitInfo): ptr duckdb_init_info =
-  cast[ptr duckdb_init_info](ii)
-
-converter toC*(fi: FunctionInfo): duckdb_function_info =
-  cast[duckdb_function_info](fi)
-
-converter toNim*(fi: duckdb_function_info): FunctionInfo =
-  cast[FunctionInfo](fi)
-
-converter toCptr*(fi: ptr FunctionInfo): ptr duckdb_function_info =
-  cast[ptr duckdb_function_info](fi)
-
-proc parameter_count*(info: BindInfo): int =
-  duckdb_bind_get_parameter_count(info).int
-
-proc get_parameter(info: BindInfo, index: int): Value =
-  result = newValue(newDuckValue(duckdb_bind_get_parameter(info, index.idx_t)))
-
-iterator parameters*(info: BindInfo): Value =
-  for idx in 0 ..< info.parameter_count:
-    yield info.get_parameter(idx)
-
-proc add_result_column*(info: BindInfo, name: string, tp: LogicalType) =
-  duckdb_bind_add_result_column(info, name.cstring, tp.handle)
-
-proc add_result_column*(info: BindInfo, name: string, tp: DuckType) =
-  info.add_result_column(name, newLogicalType(tp))
-
-# function set_stats_cardinality(bind_info::BindInfo, cardinality::UInt64, is_exact::Bool)
-#     duckdb_bind_set_cardinality(bind_info.handle, cardinality, is_exact)
+#     result_idx::Int64 = 1
+#     for col_idx::Int64 in local_info.columns
+#         if col_idx == 0
+#             result_idx += 1
+#             continue
+#         end
+#         bind_info.scan_functions[col_idx](
+#             bind_info.input_columns[col_idx],
+#             current_row,
+#             col_idx,
+#             result_idx,
+#             scan_count,
+#             output,
+#             bind_info.result_types[col_idx],
+#             bind_info.scan_types[col_idx]
+#         )
+#         result_idx += 1
+#     end
+#     DuckDB.set_size(output, scan_count)
 #     return
 # end
 
-# function get_extra_data(bind_info::BindInfo)
-#     return bind_info.main_function.extra_data
+# function tbl_bind_function(info::DuckDB.BindInfo)
+#     # fetch the tbl name from the function parameters
+#     parameter = DuckDB.get_parameter(info, 0)
+#     name = DuckDB.getvalue(parameter, String)
+#     # fetch the actual tbl using the function name
+#     extra_data = DuckDB.get_extra_data(info)
+#     tbl = extra_data[name]
+
+#     # set the cardinality
+#     row_count::UInt64 = Tables.rowcount(tbl)
+#     DuckDB.set_stats_cardinality(info, row_count, true)
+
+#     # register the result columns
+#     input_columns = Vector()
+#     scan_types::Vector{Type} = Vector()
+#     result_types::Vector{Type} = Vector()
+#     scan_functions::Vector{Function} = Vector()
+#     for entry in Tables.columnnames(tbl)
+#         result_type = table_result_type(tbl, entry)
+#         scan_function = tbl_scan_function(tbl, entry)
+#         push!(input_columns, tbl[entry])
+#         push!(scan_types, eltype(tbl[entry]))
+#         push!(result_types, julia_to_duck_type(result_type))
+#         push!(scan_functions, scan_function)
+
+#         DuckDB.add_result_column(info, string(entry), result_type)
+#     end
+#     return TableBindInfo(tbl, input_columns, scan_types, result_types, scan_functions)
 # end
+proc register*(con: Connection, df: DataFrame) =
 
-proc newTableFunction*(
-    name: string,
-    parameters: seq[LogicalType],
-    bindFunc: proc(info: BindInfo),
-    initFunc: proc(info: InitInfo),
-    initLocalFunc: proc(info: InitInfo),
-    mainFunc: proc(info: FunctionInfo, chunk: DataChunk),
-    extraData: RootRef,
-    projectionPushdown: bool,
-): TableFunctionRef =
-  result = new(TableFunctionRef)
-  result.name = name
-  result.handle = duckdb_create_table_function()
-  result.bindFunc = bindFunc
-  result.initFunc = initFunc
-  result.initLocalFunc = initLocalFunc
-  result.mainFunc = mainFunc
-  result.extraData = extraData
-  #   mainFunc: mainFunc,
-  #   extraData: extraData,
-  # result = TableFunction(
-  #   name: name,
-  #   handle: duckdb_create_table_function(),
-  #   bindFunc: bindFunc,
-  #   initFunc: initFunc,
-  #   initLocalFunc: initLocalFunc,
-  #   mainFunc: mainFunc,
-  #   extraData: extraData,
-  #     # globalObjects: initHashSet[RootRef](),
-  #     # lock: initLock()
-  # )
+  proc bindFunction(info: duckdb_bind_info) =
+    let
+      parameter = info.parameters.toSeq
+      # data = BindData(count: parameter[0].valueVarChar)
+    # GC_ref(data)
 
-  duckdb_table_function_set_name(result.handle, name.cstring)
+  proc initFunction(info: duckdb_init_info) =
+    discard
 
-  for param in parameters:
-    duckdb_table_function_add_parameter(result.handle, param.handle)
+  proc mainFunction(info: duckdb_function_info, chunk: duckdb_data_chunk) =
+    discard
 
-  # Store the TableFunction object pointer in DuckDB
-  # We pass the object as a pointer along with the destroy callback
-  duckdb_table_function_set_extra_info(
-    result.handle, cast[pointer](result), destroyTableFunction
+  let tf = newTableFunction(
+    name = "nim_tbl_scan",
+    parameters = @[newLogicalType(DuckType.VARCHAR)],
+    bindFunc = bindFunction,
+    initFunc = initFunction,
+    initLocalFunc = proc(_: duckdb_init_info) = discard,
+    mainFunc = mainFunction,
+    extraData = nil,
+    projectionPushdown = true,
   )
+  con.register(tf)
+  echo con.execute("""CREATE OR REPLACE VIEW "{name}" AS SELECT * FROM nim_tbl_scan('{name}');""")
 
-  proc tableBind(info: duckdb_bind_info) {.cdecl.} =
-    let tf = cast[TableFunctionRef](duckdb_bind_get_extra_info(info))
-    tf.bindFunc(info)
-
-  proc tableInit(info: duckdb_init_info) {.cdecl.} =
-    let tf = cast[TableFunctionRef](duckdb_init_get_extra_info(info))
-    tf.initFunc(info)
-
-  proc tableLocalInit(info: duckdb_init_info) {.cdecl.} =
-    let tf = cast[TableFunctionRef](duckdb_init_get_extra_info(info))
-    tf.initLocalFunc(info)
-
-  proc tableMain(info: duckdb_function_info, chunk: duckdb_data_chunk) {.cdecl.} =
-    let tf = cast[TableFunctionRef](duckdb_function_get_extra_info(info))
-    tf.mainFunc(info, chunk)
-
-  # Register the callbacks
-  duckdb_table_function_set_bind(result.handle, tableBind)
-  duckdb_table_function_set_init(result.handle, tableInit)
-  duckdb_table_function_set_local_init(result.handle, tableLocalInit)
-  duckdb_table_function_set_function(result.handle, tableMain)
-
-  duckdb_table_function_supports_projection_pushdown(result.handle, projectionPushdown)
-
-# proc register*(con: Connection, ...) =
-# #   echo con.execute("""CREATE OR REPLACE VIEW "{name}" AS SELECT * FROM nim_tbl_scan('{name}');""")
-
-proc register*(con: Connection, fun: TableFunctionRef) =
-  check(duckdb_register_table_function(con, fun.handle), "Failed to regiter function")
-
-proc unregister*(con: Connection, name: string) {.discardable.} =
-  discard
+# function _add_table_scan(db::DB)
+#     # add the table scan function
+#     DuckDB.create_table_function(
+#         db.main_connection,
+#         "julia_tbl_scan",
+#         [String],
+#         tbl_bind_function,
+#         tbl_global_init_function,
+#         tbl_scan_function,
+#         db.handle.registered_objects,
+#         true,
+#         tbl_local_init_function
+#     )
+#     return
+# end
+# function create_table_function(
+#     db::DB,
+#     name::AbstractString,
+#     parameters::Vector{DataType},
+#     bind_func::Function,
+#     init_func::Function,
+#     main_func::Function,
+#     extra_data::Any = missing,
+#     projection_pushdown::Bool = false,
+#     init_local_func::Union{Missing, Function} = missing
+# )

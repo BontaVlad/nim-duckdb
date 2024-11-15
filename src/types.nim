@@ -129,13 +129,13 @@ type
   DuckValue* = object
     handle* {.cursor.}: duckdb_value
 
-proc `=destroy`*(ltp: LogicalType) {.nodestroy.} =
-  if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
-    duckdb_destroy_logical_type(ltp.handle.addr)
+# proc `=destroy`*(ltp: LogicalType) =
+#   if not isNil(ltp.addr) and not isNil(ltp.handle.addr):
+#     duckdb_destroy_logical_type(ltp.handle.addr)
 
-proc `=destroy`*(dv: DuckValue) {.nodestroy.} =
-  if not isNil(dv.addr) and not isNil(dv.handle.addr):
-    duckdb_destroy_value(dv.handle.addr)
+# proc `=destroy`*(dv: DuckValue) =
+#   if not isNil(dv.addr) and not isNil(dv.handle.addr):
+#     duckdb_destroy_value(dv.handle.addr)
 
 proc `=destroy`*(dstr: DuckString) =
   if not dstr.cstring.isNil:
@@ -147,7 +147,7 @@ proc `$`*(dstr: DuckString): string =
     return "Nill"
   result = $dstr.cstring
 
-#TODO: this does not work
+# TODO: this does not work
 # proc `$`*(ltp: LogicalType): string =
 #   result = $DuckString(duckdb_logical_type_get_alias(ltp.handle))
 
@@ -175,5 +175,7 @@ proc newDuckType*(i: enum_DUCKDB_TYPE): DuckType =
   result = DuckType(ord(i))
 
 # this is not ok, read this:
+# Returns an invalid logical type, if type is: `DUCKDB_TYPE_INVALID`, `DUCKDB_TYPE_DECIMAL`, `DUCKDB_TYPE_ENUM`,
+# `DUCKDB_TYPE_LIST`, `DUCKDB_TYPE_STRUCT`, `DUCKDB_TYPE_MAP`, `DUCKDB_TYPE_ARRAY`, or `DUCKDB_TYPE_UNION`.
 proc `$`*(ltp: LogicalType): string =
   result = $newDuckType(ltp)
