@@ -7,6 +7,7 @@ suite "tests":
     type
       BindData = ref object
         count: int
+
       InitData = ref object
         pos: int
 
@@ -16,20 +17,21 @@ suite "tests":
     proc destroyInit(p: pointer) {.cdecl.} =
       `=destroy`(cast[InitData](p))
 
-    proc bindFunction(info: duckdb_bind_info) =
+    proc bindFunction(info: BindInfo) =
       info.add_result_column("my_column", DuckType.INTEGER)
       let
         parameter = info.parameters.toSeq
         data = BindData(count: parameter[0].valueInteger)
       GC_ref(data)
-      duckdb_bind_set_bind_data(info, cast[ptr BindData](data), destroyBind)
+      duckdb_bind_set_bind_data(info.handle, cast[ptr BindData](data), destroyBind)
 
-    proc initFunction(info: duckdb_init_info) =
+    proc initFunction(info: InitInfo) =
       let data = InitData(pos: 0)
       GC_ref(data)
-      duckdb_init_set_init_data(info, cast[ptr InitData](data), destroyInit)
+      duckdb_init_set_init_data(info.handle, cast[ptr InitData](data), destroyInit)
 
-    proc mainFunction(info: duckdb_function_info, chunk: duckdb_data_chunk) =
+    proc mainFunction(info: FunctionInfo, chunk: DataChunk) =
+      # var bindInfo = cast[BindData](duckdb_function_get_bind_data(info))
       var bindInfo = cast[BindData](duckdb_function_get_bind_data(info))
       var initInfo = cast[InitData](duckdb_function_get_init_data(info))
 
@@ -48,7 +50,8 @@ suite "tests":
       parameters = @[newLogicalType(DuckType.Integer)],
       bindFunc = bindFunction,
       initFunc = initFunction,
-      initLocalFunc = proc(_: duckdb_init_info) = discard,
+      initLocalFunc = proc(_: InitInfo) =
+        discard,
       mainFunc = mainFunction,
       extraData = nil,
       projectionPushdown = true,

@@ -304,7 +304,6 @@ typedef struct {
 	uint64_t lower;
 	int64_t upper;
 } duckdb_hugeint;
-/* const minus_one = Int128(hi: -1'i64, lo: 0xFFFFFFFFFFFFFFFF'u64) */
 typedef struct {
 	uint64_t lower;
 	uint64_t upper;

@@ -1,57 +1,13 @@
-import std/[sequtils, math, tables, strformat, sugar]
-import terminaltables
+import std/[math, tables]
 
-import /[api, types, vector, value]
-
-type
-  QueryResult* = object of duckdbResult
-  DataChunk* = distinct ptr duckdbDataChunk
-  PendingQueryResult* = object of duckdbPendingResult
-
-  Column* = object
-    idx*: idxt
-    name*: string
-    kind*: DuckType
-    logicalType*: LogicalType
-
-converter toCPtr*(d: ptr DataChunk): ptr duckdbDataChunk =
-  cast[ptr duckDbDataChunk](d)
-
-proc `=destroy`(datachunk: DataChunk) =
-  if not isNil(datachunk.addr):
-    duckdbdestroydatachunk(datachunk.addr)
-
-converter toC*(d: DataChunk): duckdbdatachunk =
-  cast[duckdbdatachunk](d)
-
-converter toNim*(d: duckdbdatachunk): DataChunk =
-  cast[DataChunk](d)
-
-converter toBool*(d: DataChunk): bool =
-  not isNil(d) or duckdbdatachunkgetsize(d).int > 0
-
-converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
-  cast[ptr duckdb_pending_result](p)
-
-converter toBase*(p: PendingQueryResult): duckdb_pending_result =
-  cast[duckdb_pending_result](p)
-
-proc `=destroy`(qresult: QueryResult) =
-  if not isNil(qresult.addr):
-    duckdbDestroyResult(qresult.addr)
+import /[api, dataframe, types, vector]
 
 proc isStreaming(qresult: QueryResult): bool =
   result = duckdb_result_is_streaming(qresult)
 
-proc newChunk(qresult: QueryResult): DataChunk =
-  result = cast[DataChunk](duckdb_stream_fetch_chunk(qresult))
-
-proc newChunk(qresult: QueryResult, idx: idxt): DataChunk =
-  result = cast[DataChunk](duckdb_result_get_chunk(qresult, idx))
-
 proc newColumn(qresult: QueryResult, idx: idxt): Column =
   result = Column()
-  result.idx = idx
+  result.idx = idx.int
   result.name = $duckdb_column_name(qresult.addr, idx)
   result.logicalType = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
   result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
@@ -67,18 +23,17 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
     columns = qresult.columns
     chunk =
       if qresult.isStreaming:
-        newChunk(qresult)
+        newDataChunk(qresult)
       else:
-        newChunk(qresult, idx) # TODO: should check for empty
+        newDataChunk(qresult, idx) # TODO: should check for empty
 
   result = newSeq[Vector](len(columns))
   for col in columns:
     let
-      vec: duckdb_vector = duckdb_data_chunk_get_vector(chunk, col.idx)
-      chunk_size = duckdb_data_chunk_get_size(chunk).int
+      vec = duckdb_data_chunk_get_vector(chunk.handle, col.idx.idx_t)
+      chunk_size = duckdb_data_chunk_get_size(chunk.handle).int
     result[col.idx] = newVector(vec, 0, chunk_size, col.kind, col.logicalType)
-  # TODO: not sure why I need to return here
-  return result
+    # duckdb_data_chunk_reset(chunk.handle)
 
 # TODO: not great
 proc fetchOne*(qresult: QueryResult): seq[Value] {.inline.} =
@@ -129,21 +84,11 @@ proc fetchAllNamed*(qresult: QueryResult): Table[string, Vector] =
   for i, column in columns:
     result[column.name] = data[i]
 
+proc df*(qresult: QueryResult): DataFrame =
+  result = newDataFrame(qresult.fetchAllNamed())
+
 proc error*(qresult: QueryResult): string =
   result = $duckdb_result_error(qresult.addr)
 
-proc clipString(str: string, at: int = 20): string =
-  if len(str) > at:
-    result = fmt"{str[0..at]}..."
-  else:
-    result = str
-
 proc `$`*(qresult: QueryResult): string =
-  let
-    t = newUnicodeTable()
-    headers = qresult.columns.map(c => newCell(clipString(c.name), pad = 5))
-
-  t.setHeaders(headers)
-  t.separateRows = false
-  t.addRows(qresult.rows.toSeq.map(row => row.map(e => $e)))
-  result = t.render()
+  result = $qresult.df()

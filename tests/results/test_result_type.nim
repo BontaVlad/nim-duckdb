@@ -195,6 +195,7 @@ suite "results":
     let secondArrayChild =
       outcome[0].valueList[1].toSeq.filter(c => c.isValid).map(c => c.valueBigInt)
     assert secondArrayChild == @[2'i64]
+
   test "Test Struct result type":
     let
       con = connect()

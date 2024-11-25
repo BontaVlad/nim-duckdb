@@ -1,157 +1,281 @@
-import std/[sequtils]
-import /[api, database, query, table_functions, types]
+import std/[locks, sequtils, tables, strformat, math, times]
+import /[api, database, dataframe, query, table_functions, types, vector, value]
 
+# 2048 is duckdb_vector_size(), but we can't do this at compile time
+const
+  VECTOR_SIZE = 2048
+  ROW_GROUP_SIZE = VECTOR_SIZE * 100
 
-# type
-#   TableBindInfo* = object
-#     inputColumns: seq[Column]
-#     scanTypes: seq[DuckType]
-#     resultTypes: seq[DuckType]
-#     scanFunctions: seq[proc(x: pointer): pointer] # Adjust signature as needed
+type
+  NotImplementedException = object of CatchableError
+  ExtraData* = ref object of RootObj
+    data*: Table[string, DataFrame]
 
+  GlobalData = ref object
+    pos: int
+    lock: Lock
 
+  BindData = ref object
+    df: DataFrame
 
-# function tbl_global_init_function(info::DuckDB.InitInfo)
-#     bind_info = DuckDB.get_bind_info(info, TableBindInfo)
-#     # figure out the maximum number of threads to launch from the tbl size
-#     row_count::Int64 = Tables.rowcount(bind_info.tbl)
-#     max_threads::Int64 = ceil(row_count / DuckDB.ROW_GROUP_SIZE)
-#     DuckDB.set_max_threads(info, max_threads)
-#     return TableGlobalInfo()
-# end
+  LocalData = ref object
+    columns: seq[Column]
+    currentPos: int
+    endPos: int
+    rowCount: int
 
-# function tbl_local_init_function(info::DuckDB.InitInfo)
-#     columns = DuckDB.get_projected_columns(info)
-#     return TableLocalInfo(columns)
-# end
+const
+  RoundingEpochToUnixEpochDays = 719163 # Same constant as in Julia
+  RoundingEpochToUnixEpochMs = 62135596800000 # Milliseconds version
 
-# function tbl_scan_function(info::DuckDB.FunctionInfo, output::DuckDB.DataChunk)
-#     bind_info = DuckDB.get_bind_info(info, TableBindInfo)
-#     global_info = DuckDB.get_init_info(info, TableGlobalInfo)
-#     local_info = DuckDB.get_local_info(info, TableLocalInfo)
+proc destroyBind(p: pointer) {.cdecl.} =
+  `=destroy`(cast[BindData](p))
 
-#     if local_info.current_pos >= local_info.end_pos
-#         # ran out of data to scan in the local info: fetch new rows from the global state (if any)
-#         # we can in increments of 100 vectors
-#         lock(global_info.global_lock) do
-#             row_count::Int64 = Tables.rowcount(bind_info.tbl)
-#             local_info.current_pos = global_info.pos
-#             total_scan_amount::Int64 = DuckDB.ROW_GROUP_SIZE
-#             if local_info.current_pos + total_scan_amount >= row_count
-#                 total_scan_amount = row_count - local_info.current_pos
-#             end
-#             local_info.end_pos = local_info.current_pos + total_scan_amount
-#             return global_info.pos += total_scan_amount
-#         end
-#     end
-#     scan_count::Int64 = DuckDB.VECTOR_SIZE
-#     current_row::Int64 = local_info.current_pos
-#     if current_row + scan_count >= local_info.end_pos
-#         scan_count = local_info.end_pos - current_row
-#     end
-#     local_info.current_pos += scan_count
+proc destroyGlobalData(p: pointer) {.cdecl.} =
+  `=destroy`(cast[GlobalData](p))
 
-#     result_idx::Int64 = 1
-#     for col_idx::Int64 in local_info.columns
-#         if col_idx == 0
-#             result_idx += 1
-#             continue
-#         end
-#         bind_info.scan_functions[col_idx](
-#             bind_info.input_columns[col_idx],
-#             current_row,
-#             col_idx,
-#             result_idx,
-#             scan_count,
-#             output,
-#             bind_info.result_types[col_idx],
-#             bind_info.scan_types[col_idx]
-#         )
-#         result_idx += 1
-#     end
-#     DuckDB.set_size(output, scan_count)
-#     return
-# end
+proc destroyLocalData(p: pointer) {.cdecl.} =
+  `=destroy`(cast[LocalData](p))
 
-# function tbl_bind_function(info::DuckDB.BindInfo)
-#     # fetch the tbl name from the function parameters
-#     parameter = DuckDB.get_parameter(info, 0)
-#     name = DuckDB.getvalue(parameter, String)
-#     # fetch the actual tbl using the function name
-#     extra_data = DuckDB.get_extra_data(info)
-#     tbl = extra_data[name]
+# Helper functions for date/time conversions
+proc dateToEpochDays(d: DateTime): int32 =
+  (d - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inDays.int32
 
-#     # set the cardinality
-#     row_count::UInt64 = Tables.rowcount(tbl)
-#     DuckDB.set_stats_cardinality(info, row_count, true)
+proc timeToMicroseconds(t: Time): int64 =
+  t.toUnix * 1_000_000 + t.nanosecond.int64 div 1_000
 
-#     # register the result columns
-#     input_columns = Vector()
-#     scan_types::Vector{Type} = Vector()
-#     result_types::Vector{Type} = Vector()
-#     scan_functions::Vector{Function} = Vector()
-#     for entry in Tables.columnnames(tbl)
-#         result_type = table_result_type(tbl, entry)
-#         scan_function = tbl_scan_function(tbl, entry)
-#         push!(input_columns, tbl[entry])
-#         push!(scan_types, eltype(tbl[entry]))
-#         push!(result_types, julia_to_duck_type(result_type))
-#         push!(scan_functions, scan_function)
+proc dateTimeToEpochMs(dt: DateTime): int64 =
+  (dt - initDateTime(1, mJan, 1970, 0, 0, 0, utc())).inMilliseconds
 
-#         DuckDB.add_result_column(info, string(entry), result_type)
-#     end
-#     return TableBindInfo(tbl, input_columns, scan_types, result_types, scan_functions)
-# end
-proc register*(con: Connection, df: DataFrame) =
+# Value conversion functions
+proc valueToDuckDB*(val: DateTime): int64 =
+  (dateTimeToEpochMs(val) - RoundingEpochToUnixEpochMs) * 1000
 
-  proc bindFunction(info: duckdb_bind_info) =
-    let
-      parameter = info.parameters.toSeq
-      # data = BindData(count: parameter[0].valueVarChar)
-    # GC_ref(data)
+proc valueToDuckDB*(val: Time): int64 =
+  timeToMicroseconds(val) div 1000
 
-  proc initFunction(info: duckdb_init_info) =
+proc valueToDuckDB*(val: string): auto =
+  raise newException(
+    NotImplementedException,
+    "Cannot use valueToDuckDB to convert string values - use DuckDB.assign_string_element on a vector instead",
+  )
+
+proc valueToDuckDB*[T](val: T): T =
+  val
+
+proc scanColumn(
+    kind: DuckType,
+    values: Vector,
+    rowOffset, scanCount, resultIdx: int,
+    chunk: DataChunk,
+) =
+  let
+    vec = duckdb_data_chunk_get_vector(chunk, resultIdx.idx_t)
+
+  duckdb_vector_ensure_validity_writable(vec)
+  let
+    raw = duckdb_vector_get_data(vec)
+    validity = duckdb_vector_get_validity(vec)
+
+  case kind
+  of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
+    raise newException(ValueError, fmt"got invalid enum type: {kind}")
+  of DuckType.Boolean:
+    var resultArray = cast[ptr UncheckedArray[uint8]](raw)
+    for i, e in values.valueBoolean[rowOffset ..< scanCount]:
+      resultArray[i] = e.uint8
+  of DuckType.TinyInt:
+    var resultArray = cast[ptr UncheckedArray[int8]](raw)
+    for i, e in values.valueTinyint[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.SmallInt:
+    var resultArray = cast[ptr UncheckedArray[int16]](raw)
+    for i, e in values.valueSmallint[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.Integer:
+    var resultArray = cast[ptr UncheckedArray[int32]](raw)
+    for i, e in values.valueInteger[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.BigInt:
+    var resultArray = cast[ptr UncheckedArray[int64]](raw)
+    for i, e in values.valueBigint[rowOffset ..< scanCount]:
+      duckdb_validity_set_row_valid(validity, i.idx_t)
+      resultArray[i] = e
+  of DuckType.UTinyInt:
+    var resultArray = cast[ptr UncheckedArray[uint8]](raw)
+    for i, e in values.valueUTinyint[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.USmallInt:
+    var resultArray = cast[ptr UncheckedArray[uint16]](raw)
+    for i, e in values.valueUSmallint[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.UInteger:
+    var resultArray = cast[ptr UncheckedArray[uint32]](raw)
+    for i, e in values.valueUInteger[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.UBigInt:
+    var resultArray = cast[ptr UncheckedArray[uint64]](raw)
+    for i, e in values.valueUBigint[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.Float:
+    var resultArray = cast[ptr UncheckedArray[float32]](raw)
+    for i, e in values.valueFloat[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.Double:
+    var resultArray = cast[ptr UncheckedArray[float64]](raw)
+    for i, e in values.valueDouble[rowOffset ..< scanCount]:
+      resultArray[i] = e
+  of DuckType.Timestamp:
+    discard
+    # result.valueTimestamp = newSeq[DateTime]()
+  of DuckType.Date:
+    discard
+    # result.valueDate = newSeq[DateTime]()
+  of DuckType.Time:
+    discard
+    # result.valueTime = newSeq[Time]()
+  of DuckType.Interval:
+    discard
+    # result.valueInterval = newSeq[TimeInterval]()
+  of DuckType.HugeInt:
+    discard
+    # result.valueHugeint = newSeq[Int128]()
+  of DuckType.Varchar:
+    for i, e in values.valueVarChar[rowOffset ..< scanCount]:
+      duckdb_vector_assign_string_element(vec, i.idx_t, e.cstring)
+      duckdb_validity_set_row_valid(validity, i.idx_t)
+    # result.valueVarchar = newSeq[string]()
+  of DuckType.Blob:
+    discard
+    # result.valueBlob = newSeq[seq[byte]]()
+  of DuckType.Decimal:
+    discard
+    # result.valueDecimal = newSeq[DecimalType]()
+  of DuckType.TimestampS:
+    discard
+    # result.valueTimestampS = newSeq[DateTime]()
+  of DuckType.TimestampMs:
+    discard
+    # result.valueTimestampMs = newSeq[DateTime]()
+  of DuckType.TimestampNs:
+    discard
+    # result.valueTimestampNs = newSeq[DateTime]()
+  of DuckType.Enum:
+    discard
+    # result.valueEnum = newSeq[uint]()
+  of DuckType.List:
+    discard
+    # result.valueList = newSeq[seq[Value]]()
+  of DuckType.Struct, DuckType.Map:
+    discard
+    # result.valueStruct = newSeq[Table[string, Value]]()
+  of DuckType.UUID:
+    discard
+    # result.valueUuid = newSeq[Uuid]()
+  of DuckType.Union:
+    discard
+    # result.valueUnion = newSeq[Table[string, Value]]()
+  of DuckType.Bit:
+    discard
+    # result.valueBit = newSeq[string]()
+  of DuckType.TimeTz:
     discard
 
-  proc mainFunction(info: duckdb_function_info, chunk: duckdb_data_chunk) =
-    discard
+proc bindFunction(info: BindInfo) =
+  let
+    parameter = info.parameters.toSeq
+    name = parameter[0].valueVarchar
+    df = cast[ExtraData](info.mainFunction.extraData).data[name]
+    data = BindData(df: df)
+
+  duckdb_bind_set_cardinality(info.handle, len(df).uint64, true)
+  for column in df.columns:
+    info.add_result_column(column.name, column.kind)
+  GC_ref(data)
+  duckdb_bind_set_bind_data(info.handle, cast[ptr BindData](data), destroyBind)
+
+proc initFunction(info: InitInfo) =
+  let
+    bindInfo = cast[BindData](duckdb_init_get_bind_data(info.handle))
+    maxThreads = ceil(len(bindInfo.df) / ROW_GROUP_SIZE)
+  var rowLock: Lock
+  initLock rowLock
+  let data = GlobalData(pos: 0, lock: rowLock)
+  duckdb_init_set_max_threads(info.handle, max_threads.idx_t)
+  GC_ref(data)
+  duckdb_init_set_init_data(info.handle, cast[ptr GlobalData](data), destroyGlobalData)
+
+proc initLocalFunction(info: InitInfo) =
+  let
+    bindInfo = cast[BindData](duckdb_init_get_bind_data(info.handle))
+    data = LocalData(currentPos: 0, endPos: 0, rowCount: bindInfo.df.len)
+    columnCount = duckdb_init_get_column_count(info.handle)
+
+  let columns = bindInfo.df.columns.toSeq
+  for i in 0 ..< columnCount:
+    let colIdx = duckdb_init_get_column_index(info.handle, i)
+    data.columns.add(columns[colIdx])
+
+  GC_ref(data)
+  duckdb_init_set_init_data(info.handle, cast[ptr LocalData](data), destroyLocalData)
+
+proc mainFunction(info: FunctionInfo, chunk: DataChunk) =
+  let bindInfo = cast[BindData](duckdb_function_get_bind_data(info))
+  var
+    globalData = cast[GlobalData](duckdb_function_get_init_data(info))
+    localData = cast[LocalData](duckdb_function_get_local_init_data(info))
+
+  # Set the boundries for another chunk
+  if localData.currentPos >= localData.endPos:
+    if tryAcquire(globalData.lock):
+      let rowCount = localData.rowCount
+      localData.currentPos = globalData.pos
+      var totalScanAmount = ROW_GROUP_SIZE
+      if localData.currentPos + totalScanAmount >= rowCount:
+        totalScanAmount = rowCount - localData.currentPos
+      localData.endPos = localData.currentPos + totalScanAmount
+      globalData.pos += totalScanAmount
+  var
+    scanCount = VECTOR_SIZE
+    currentRow = localData.currentPos
+
+  if currentRow + scanCount >= localData.endPos:
+    scanCount = localData.endPos - currentRow
+
+  if scanCount == 0:
+    return
+
+  localData.currentPos += scanCount
+
+  # set result array
+  var resultIdx = 0
+  for col in localData.columns:
+    scanColumn(
+      col.kind, bindInfo.df.values[col.idx], currentRow, scanCount, resultIdx, chunk
+    )
+    resultIdx += 1
+
+  GC_ref(chunk)
+  duckdb_data_chunk_set_size(chunk.handle, scanCount.idx_t)
+
+proc newExtraData(): ExtraData =
+  result = ExtraData(data: initTable[string, DataFrame]())
+
+proc register*(con: Connection, name: string, df: DataFrame) =
+  var extraData = newExtraData()
+  extraData.data[name] = df
 
   let tf = newTableFunction(
     name = "nim_tbl_scan",
     parameters = @[newLogicalType(DuckType.VARCHAR)],
     bindFunc = bindFunction,
     initFunc = initFunction,
-    initLocalFunc = proc(_: duckdb_init_info) = discard,
+    initLocalFunc = initLocalFunction,
     mainFunc = mainFunction,
-    extraData = nil,
+    extraData = extradata,
     projectionPushdown = true,
   )
   con.register(tf)
-  echo con.execute("""CREATE OR REPLACE VIEW "{name}" AS SELECT * FROM nim_tbl_scan('{name}');""")
-
-# function _add_table_scan(db::DB)
-#     # add the table scan function
-#     DuckDB.create_table_function(
-#         db.main_connection,
-#         "julia_tbl_scan",
-#         [String],
-#         tbl_bind_function,
-#         tbl_global_init_function,
-#         tbl_scan_function,
-#         db.handle.registered_objects,
-#         true,
-#         tbl_local_init_function
-#     )
-#     return
-# end
-# function create_table_function(
-#     db::DB,
-#     name::AbstractString,
-#     parameters::Vector{DataType},
-#     bind_func::Function,
-#     init_func::Function,
-#     main_func::Function,
-#     extra_data::Any = missing,
-#     projection_pushdown::Bool = false,
-#     init_local_func::Union{Missing, Function} = missing
-# )
+  con.execute(
+    fmt"""CREATE OR REPLACE VIEW "{name}" AS SELECT * FROM nim_tbl_scan('{name}');"""
+  )

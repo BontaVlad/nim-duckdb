@@ -1,14 +1,43 @@
-import std/[tables, times, math, strutils]
+import std/[tables, times, math]
 import nint128
 import decimal
 import uuid4
 
 import /[types, api]
 
+type
+  DuckValueBase = object of RootObj
+    handle*: duckdb_value
+
+  DuckValue* = ref object of DuckValueBase
+  DuckStringBase* = object of RootObj
+    internal: cstring
+
+  DuckString* = ref object of DuckStringBase
+
+proc `=destroy`(v: DuckValueBase) =
+  if not isNil(v.addr) and not isNil(v.handle):
+    duckdb_destroy_value(v.handle.addr)
+
+proc newDuckValue*(handle: duckdb_value): DuckValue =
+  result = DuckValue(handle: handle)
+
+proc `=destroy`(dstr: DuckStringBase) =
+  if not isNil(dstr.addr):
+    duckdbFree(dstr.internal)
+
+proc `$`*(dstr: DuckString): string =
+  if isNil(dstr.internal):
+    # TODO: maybe "" instead of Nill?
+    return "Nill"
+  result = $dstr.internal
+
+proc newDuckString*(str: cstring): DuckString =
+  result = DuckString(internal: str)
+
 proc `$`*(v: Value): string =
   if not v.isValid:
     return ""
-
   case v.kind
   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
     raise newException(ValueError, "got invalid type")
@@ -263,7 +292,12 @@ proc newValue*(kind: DuckType, isValid: bool): Value =
     raise newException(ValueError, "Expected DuckType.Invalid for default value")
 
 proc newValue*(val: DuckValue): Value =
-  let kind = newDuckType(duckdb_get_value_type(val.handle))
+  # we avoid creating a LogicalType because this
+  # one should not be garbadge collected
+  let
+    logicalTp = duckdb_get_value_type(val.handle)
+    logicalId = duckdb_get_type_id(logicalTp)
+    kind = DuckType(ord(logicalId))
 
   # TODO: get the actual isValid value
   result = Value(kind: kind, isValid: true)
@@ -317,7 +351,7 @@ proc newValue*(val: DuckValue): Value =
     discard
     # result.valueHugeint = parseHugeInt(v)
   of DuckType.Varchar:
-    result.valueVarchar = $duckdb_get_varchar(val.handle)
+    result.valueVarchar = $newDuckString(duckdbGetVarchar(val.handle))
   of DuckType.Blob:
     result.valueBlob = cast[seq[byte]](val.handle)
   of DuckType.Decimal:

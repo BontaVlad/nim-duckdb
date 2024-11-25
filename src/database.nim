@@ -1,4 +1,4 @@
-import std/[logging]
+# import std/[logging]
 
 import /[api, config, exceptions]
 
