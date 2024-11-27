@@ -57,7 +57,9 @@ proc `$`*(df: DataFrame): string =
     clipColName = getEnv("display_clip_column_name", "20").parseInt
     t = newUnicodeTable()
 
-  var headers = df.columns[0 ..< maxCols].map(c => newCell(clipString(c.name, clipColName), pad = 5))
+  var headers = df.columns[0 ..< maxCols].map(
+    c => newCell(clipString(c.name, clipColName), pad = 5)
+  )
   if showIndex:
     headers.insert(newCell("#", pad = 2), 0)
     for i, row in rows.mpairs:

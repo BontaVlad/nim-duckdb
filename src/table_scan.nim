@@ -69,8 +69,7 @@ proc scanColumn(
     rowOffset, scanCount, resultIdx: int,
     chunk: DataChunk,
 ) =
-  let
-    vec = duckdb_data_chunk_get_vector(chunk, resultIdx.idx_t)
+  let vec = duckdb_data_chunk_get_vector(chunk, resultIdx.idx_t)
 
   duckdb_vector_ensure_validity_writable(vec)
   let

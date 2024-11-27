@@ -376,7 +376,8 @@ proc newVector*(data: seq[uint8]): Vector =
   result = Vector(kind: DuckType.UTinyInt, valueUTinyint: data, mask: newValidityMask())
 
 proc newVector*(data: seq[uint16]): Vector =
-  result = Vector(kind: DuckType.USmallInt, valueUSmallint: data, mask: newValidityMask())
+  result =
+    Vector(kind: DuckType.USmallInt, valueUSmallint: data, mask: newValidityMask())
 
 proc newVector*(data: seq[uint32]): Vector =
   result = Vector(kind: DuckType.UInteger, valueUInteger: data, mask: newValidityMask())
@@ -391,7 +392,8 @@ proc newVector*(data: seq[float64]): Vector =
   result = Vector(kind: DuckType.Double, valueDouble: data, mask: newValidityMask())
 
 proc newVector*(data: seq[DateTime]): Vector =
-  result = Vector(kind: DuckType.Timestamp, valueTimestamp: data, mask: newValidityMask())
+  result =
+    Vector(kind: DuckType.Timestamp, valueTimestamp: data, mask: newValidityMask())
 
 proc newVector*(data: seq[Time]): Vector =
   result = Vector(kind: DuckType.Time, valueTime: data, mask: newValidityMask())
@@ -578,9 +580,9 @@ proc newVector*(
         child_type = newLogicalType(
           duckdb_struct_type_child_type(logicalType.handle, child_idx.idx_t)
         )
-        child_name = newDuckString(duckdb_struct_type_child_name(
-          logicalType.handle, child_idx.idx_t
-        ))
+        child_name = newDuckString(
+          duckdb_struct_type_child_name(logicalType.handle, child_idx.idx_t)
+        )
         child = newVector(
           vec = children,
           offset = offset,
@@ -679,97 +681,6 @@ proc newVector*(
 
 proc `[]`*(v: Vector, idx: int): Value =
   result = vecToValue(v, idx)
-
-# func `[]`*(v: Vector, rng: HSlice[int, int]): Vector =
-#   result = Vector(kind: v.kind)
-#   let start = rng.a
-#   let finish = rng.b
-
-#   # Validate range
-#   if start < 0 or finish < 0:
-#     raise newException(ValueError, "Range bounds must be non-negative")
-
-#   # Create a new mask for the slice
-#   let sliceLen = finish - start + 1
-#   result.mask = newSeq[uint64](sliceLen)
-#   for i in 0 ..< sliceLen:
-#     if start + i < v.mask.len:
-#       result.mask[i] = v.mask[start + i]
-#     else:
-#       break
-
-#   case v.kind
-#   of DuckType.Invalid, DuckType.Any, DuckType.VarInt, DuckType.SqlNull:
-#     raise newException(ValueError, fmt"got invalid enum type: {v.kind}")
-#   of DuckType.Boolean:
-#     result.valueBoolean = v.valueBoolean[start .. min(finish, v.valueBoolean.len - 1)]
-#   of DuckType.TinyInt:
-#     result.valueTinyint = v.valueTinyint[start .. min(finish, v.valueTinyint.len - 1)]
-#   of DuckType.SmallInt:
-#     result.valueSmallint =
-#       v.valueSmallint[start .. min(finish, v.valueSmallint.len - 1)]
-#   of DuckType.Integer:
-#     result.valueInteger = v.valueInteger[start .. min(finish, v.valueInteger.len - 1)]
-#   of DuckType.BigInt:
-#     result.valueBigint = v.valueBigint[start .. min(finish, v.valueBigint.len - 1)]
-#   of DuckType.UTinyInt:
-#     result.valueUtinyint =
-#       v.valueUtinyint[start .. min(finish, v.valueUtinyint.len - 1)]
-#   of DuckType.USmallInt:
-#     result.valueUsmallint =
-#       v.valueUsmallint[start .. min(finish, v.valueUsmallint.len - 1)]
-#   of DuckType.UInteger:
-#     result.valueUinteger =
-#       v.valueUinteger[start .. min(finish, v.valueUinteger.len - 1)]
-#   of DuckType.UBigInt:
-#     result.valueUbigint = v.valueUbigint[start .. min(finish, v.valueUbigint.len - 1)]
-#   of DuckType.Float:
-#     result.valueFloat = v.valueFloat[start .. min(finish, v.valueFloat.len - 1)]
-#   of DuckType.Double:
-#     result.valueDouble = v.valueDouble[start .. min(finish, v.valueDouble.len - 1)]
-#   of DuckType.Timestamp:
-#     result.valueTimestamp =
-#       v.valueTimestamp[start .. min(finish, v.valueTimestamp.len - 1)]
-#   of DuckType.Date:
-#     result.valueDate = v.valueDate[start .. min(finish, v.valueDate.len - 1)]
-#   of DuckType.Time:
-#     result.valueTime = v.valueTime[start .. min(finish, v.valueTime.len - 1)]
-#   of DuckType.Interval:
-#     result.valueInterval =
-#       v.valueInterval[start .. min(finish, v.valueInterval.len - 1)]
-#   of DuckType.HugeInt:
-#     result.valueHugeInt = v.valueHugeInt[start .. min(finish, v.valueHugeInt.len - 1)]
-#   of DuckType.VarChar:
-#     result.valueVarchar = v.valueVarchar[start .. min(finish, v.valueVarchar.len - 1)]
-#   of DuckType.Blob:
-#     result.valueBlob = v.valueBlob[start .. min(finish, v.valueBlob.len - 1)]
-#   of DuckType.Decimal:
-#     result.valueDecimal = v.valueDecimal[start .. min(finish, v.valueDecimal.len - 1)]
-#   of DuckType.TimestampS:
-#     result.valueTimestampS =
-#       v.valueTimestampS[start .. min(finish, v.valueTimestampS.len - 1)]
-#   of DuckType.TimestampMs:
-#     result.valueTimestampMs =
-#       v.valueTimestampMs[start .. min(finish, v.valueTimestampMs.len - 1)]
-#   of DuckType.TimestampNs:
-#     result.valueTimestampNs =
-#       v.valueTimestampNs[start .. min(finish, v.valueTimestampNs.len - 1)]
-#   of DuckType.Enum:
-#     result.valueEnum = v.valueEnum[start .. min(finish, v.valueEnum.len - 1)]
-#   of DuckType.List:
-#     result.valueList = v.valueList[start .. min(finish, v.valueList.len - 1)]
-#   of DuckType.Struct:
-#     result.valueStruct = v.valueStruct[start .. min(finish, v.valueStruct.len - 1)]
-#   of DuckType.Map:
-#     result.valueMap = v.valueMap[start .. min(finish, v.valueMap.len - 1)]
-#   of DuckType.UUID:
-#     result.valueUuid = v.valueUuid[start .. min(finish, v.valueUuid.len - 1)]
-#   of DuckType.Union:
-#     result.valueUnion = v.valueUnion[start .. min(finish, v.valueUnion.len - 1)]
-#   of DuckType.Bit:
-#     result.valueBit = v.valueBit[start .. min(finish, v.valueBit.len - 1)]
-#   of DuckType.TimeTz:
-#     result.valueTimeTz = v.valueTimeTz[start .. min(finish, v.valueTimeTz.len - 1)]
 
 proc `&=`*(left: var Vector, right: Vector): void =
   if left.kind != right.kind:

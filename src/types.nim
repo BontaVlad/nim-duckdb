@@ -1,4 +1,4 @@
-import std/[tables, times, typetraits, strutils]
+import std/[macros, tables, times, typetraits, strutils, strformat]
 
 import nint128
 import decimal
@@ -15,6 +15,7 @@ type
   ValidityMask = distinct seq[uint64]
   DataChunkBase = object of RootObj
     handle*: duckdbDataChunk
+
   DataChunk* = ref object of DataChunkBase
 
   QueryResult* = object of duckdbResult
@@ -149,17 +150,7 @@ type
 
 proc `=destroy`(d: DataChunkBase) =
   if not isNil(d.addr) and not isNil(d.handle.addr):
-#     # echo fmt"should clean {ran}"
-#     echo getStackTrace()
-#     # ran += 1
-#     # ran += 1
-#     # if ran == 1:
-#     #   echo ran
-#     #   raise newException(ValueError, "foo")
     duckdbdestroydatachunk(d.handle.addr)
-#     # echo "destroyied"
-#     # d.handle = nil
-#     # echo repr d
 
 proc `=copy`(a: var DataChunkBase, b: DataChunkBase) {.error.}
 
@@ -198,12 +189,18 @@ converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
 converter toBase*(p: PendingQueryResult): duckdb_pending_result =
   cast[duckdb_pending_result](p)
 
-proc add*(x: var ValidityMask; y: uint64) =
+proc add*(x: var ValidityMask, y: uint64) =
   (seq[uint64])(x).add(y)
+
 proc len*(s: ValidityMask): int {.borrow.}
-proc `[]`*[T](s: ValidityMask, i: T): uint64 = (seq[uint64])(s)[i]
-proc `[]=`*(s: var ValidityMask, i: int, x: uint64) = (seq[uint64])(s)[i] = x
-proc `&=`*(a: var ValidityMask, b: ValidityMask) = (seq[uint64])(a) &= (seq[uint64])(b)
+proc `[]`*[T](s: ValidityMask, i: T): uint64 =
+  (seq[uint64])(s)[i]
+
+proc `[]=`*(s: var ValidityMask, i: int, x: uint64) =
+  (seq[uint64])(s)[i] = x
+
+proc `&=`*(a: var ValidityMask, b: ValidityMask) =
+  (seq[uint64])(a) &= (seq[uint64])(b)
 
 proc newValidityMask*(): ValidityMask =
   const BITS_PER_VALUE = 64
@@ -293,6 +290,16 @@ proc newDuckType*[T](t: typedesc[T]): DuckType =
     DuckType.SqlNull
   else:
     DuckType.Invalid
+
+proc newDuckType*(node: NimNode): DuckType =
+  let kind = node.strVal
+  case kind
+  of "int":
+    result = newDuckType(int)
+  of "string":
+    result = newDuckType(string)
+  else:
+    raise newException(ValueError, fmt"invalid type {kind}")
 
 proc `$`*(ltp: LogicalType): string =
   # returns nil for complext tipes

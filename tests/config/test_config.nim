@@ -25,15 +25,16 @@ suite "database config":
     let con = connect(config)
     let outcome =
       con.execute("SELECT current_setting('threads') AS threads;").fetchall()
-    assert outcome[0].valueBigint == @[3'i64]
+    assert outcome[0].valueBigint ==
+      @[3'i64]
 
-  # triggers the memory sanitizer
-  # test "Incorrect setting key should throw an error":
-  #   doAssertRaises(OperationError):
-  #     let
-  #       config = newConfig({"invalid": "3"}.toTable)
-  #       con = connect(config)
+        # triggers the memory sanitizer
+        # test "Incorrect setting key should throw an error":
+        #   doAssertRaises(OperationError):
+        #     let
+        #       config = newConfig({"invalid": "3"}.toTable)
+        #       con = connect(config)
 
-  # test "Incorrect setting value should throw an error":
-  #   doAssertRaises(OperationError):
-  #     let config = newConfig({"threads": "invalid"}.toTable)
+        # test "Incorrect setting value should throw an error":
+        #   doAssertRaises(OperationError):
+        #     let config = newConfig({"threads": "invalid"}.toTable)
