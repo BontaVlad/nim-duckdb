@@ -1,4 +1,4 @@
-import std/[macros, tables, times, typetraits, strutils, strformat]
+import std/[macros, tables, times, typetraits, strutils, strformat, sugar, sequtils]
 
 import nint128
 import decimal
@@ -13,11 +13,6 @@ const
 
 type
   ValidityMask = distinct seq[uint64]
-  DataChunkBase = object of RootObj
-    handle*: duckdbDataChunk
-
-  DataChunk* = ref object of DataChunkBase
-
   QueryResult* = object of duckdbResult
   PendingQueryResult* = object of duckdbPendingResult
 
@@ -148,8 +143,16 @@ type
     kind*: DuckType
     logicalType*: LogicalType
 
+  DataChunkBase = object of RootObj
+    handle*: duckdbDataChunk
+    columns*: seq[Column]
+    shouldDestroy: bool
+
+  DataChunk* = ref object of DataChunkBase
+
+
 proc `=destroy`(d: DataChunkBase) =
-  if not isNil(d.addr) and not isNil(d.handle.addr):
+  if not isNil(d.addr) and not isNil(d.handle.addr) and d.shouldDestroy:
     duckdbdestroydatachunk(d.handle.addr)
 
 proc `=copy`(a: var DataChunkBase, b: DataChunkBase) {.error.}
@@ -165,14 +168,22 @@ proc `=destroy`(qresult: QueryResult) =
 # converter toCPtr*(d: ptr DataChunk): ptr duckdbDataChunk =
 #   cast[ptr duckDbDataChunk](d)
 
-proc newDataChunk*(handle: duckdb_data_chunk): DataChunk =
-  result = DataChunk(handle: handle)
+proc newDataChunk*(handle: duckdb_data_chunk, shouldDestroy: bool=true): DataChunk =
+  result = DataChunk(handle: handle, shouldDestroy: shouldDestroy)
 
-proc newDataChunk*(qresult: QueryResult): DataChunk =
-  result = newDataChunk(duckdb_stream_fetch_chunk(qresult))
+proc newDataChunk*(handle: duckdb_data_chunk, columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+  result = DataChunk(handle: handle, columns: columns, shouldDestroy: shouldDestroy)
 
-proc newDataChunk*(qresult: QueryResult, idx: idxt): DataChunk =
-  result = newDataChunk(duckdb_result_get_chunk(qresult, idx))
+proc newDataChunk*(columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+  let types = columns.map(c => c.logicalType.handle)
+  let chunk = duckdb_create_data_chunk(cast[ptr duckdb_logical_type](types[0].addr), len(columns).idx_t)
+  result = newDataChunk(chunk, columns, shouldDestroy)
+
+proc newDataChunk*(qresult: QueryResult, columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+  result = newDataChunk(duckdb_stream_fetch_chunk(qresult), columns, shouldDestroy)
+
+proc newDataChunk*(qresult: QueryResult, idx: idxt, columns: seq[Column], shouldDestroy: bool=true): DataChunk =
+  result = newDataChunk(duckdb_result_get_chunk(qresult, idx), columns, shouldDestroy)
 
 converter toC*(d: DataChunk): duckdbdatachunk =
   d.handle
@@ -180,8 +191,8 @@ converter toC*(d: DataChunk): duckdbdatachunk =
 # converter toNim*(d: duckdbdatachunk): DataChunk =
 #   cast[DataChunk](d)
 
-# converter toBool*(d: DataChunk): bool =
-#   not isNil(d) or duckdbdatachunkgetsize(d).int > 0
+converter toBool*(d: DataChunk): bool =
+  not isNil(d) or duckdbdatachunkgetsize(d).int > 0
 
 converter toBase*(p: ptr PendingQueryResult): ptr duckdb_pending_result =
   cast[ptr duckdb_pending_result](p)
@@ -294,6 +305,8 @@ proc newDuckType*[T](t: typedesc[T]): DuckType =
 proc newDuckType*(node: NimNode): DuckType =
   let kind = node.strVal
   case kind
+  of "int64":
+    result = newDuckType(int64)
   of "int":
     result = newDuckType(int)
   of "string":

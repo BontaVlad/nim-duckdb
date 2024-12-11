@@ -5,12 +5,19 @@ import /[api, dataframe, types, vector]
 proc isStreaming(qresult: QueryResult): bool =
   result = duckdb_result_is_streaming(qresult)
 
+proc newColumn*(idx: int, name: string, logicalType: LogicalType, kind: DuckType): Column =
+  result = Column(idx:idx, name:name, logicalType: logicalType, kind: kind)
+
+proc newColumn*(idx: int, name: string, kind: DuckType): Column =
+  result = Column(idx:idx, name:name, logicalType: newLogicalType(kind), kind: kind)
+
 proc newColumn(qresult: QueryResult, idx: idxt): Column =
-  result = Column()
-  result.idx = idx.int
-  result.name = $duckdb_column_name(qresult.addr, idx)
-  result.logicalType = newLogicalType(duckdb_column_logical_type(qresult.addr, idx))
-  result.kind = newDuckType(duckdb_column_type(qresult.addr, idx))
+  result = newColumn(
+    idx = idx.int,
+    name = $duckdb_column_name(qresult.addr, idx),
+    logicalType = newLogicalType(duckdb_column_logical_type(qresult.addr, idx)),
+    kind = newDuckType(duckdb_column_type(qresult.addr, idx))
+  )
 
 # TODO: find out why if I make this an iterator it breaks with a double free, maybe a copy=?
 proc columns(qresult: QueryResult): seq[Column] =
@@ -23,9 +30,9 @@ proc fetchChunk(qresult: QueryResult, idx: idx_t): seq[Vector] {.inline.} =
     columns = qresult.columns
     chunk =
       if qresult.isStreaming:
-        newDataChunk(qresult)
+        newDataChunk(qresult, columns)
       else:
-        newDataChunk(qresult, idx) # TODO: should check for empty
+        newDataChunk(qresult, idx, columns) # TODO: should check for empty
 
   result = newSeq[Vector](len(columns))
   for col in columns:
